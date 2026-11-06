@@ -1,0 +1,5 @@
+# dsh-llm-ferry: the Ferry server's models in DSH. Server and token come from ~/.ferry/config.json
+# (ferry login) or FERRY_SERVER / FERRY_TOKEN; to set them here instead, add them under config.
+- insert:
+    - id: llm-ferry
+      name: dsh-llm-ferry

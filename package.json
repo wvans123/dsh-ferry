@@ -1,0 +1,48 @@
+{
+  "name": "dsh-llm-ferry",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness model plugin: the models of a Ferry server, sent in small incremental uploads",
+  "license": "MIT",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "ferry"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wvans123/dsh-ferry.git"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.2.2-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-llm-pi-ai": ">=0.2.2-rc.1 <0.3.0",
+    "@earendil-works/pi-ai": "^1.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-llm-pi-ai": "0.2.2-rc.1",
+    "@earendil-works/pi-ai": "1.3.0"
+  }
+}
