@@ -95,6 +95,12 @@ npm install
 npm test
 ```
 
+对着接了真 DeepSeek 的自带服务端检查一遍（思考档位、思考内容回传、缓存命中、搜索；花几分钱）：
+
+```sh
+FERRY_SERVER=http://127.0.0.1:8790 FERRY_TOKEN=<令牌> node scripts/check-real-deepseek.mjs [deepseek-flash|deepseek-v4-pro]
+```
+
 用真的 DSH、不用 API Key 试自带服务端：`scripts/fake-deepseek.mjs` 是一个假的 DeepSeek（会思考、会调读文件工具），把服务端配置里 deepseek 的 `baseUrl` 指向它即可。
 
 对着原来的 Ferry 服务端测（服务端接 ferry 仓库里 `selftest/fake_llm.py` 的 basic 模式）。脚本在中间放一个拦 100 KB 以上请求的假网关，先测上限，再用默认块大小发 300 KB 的对话跑两轮：
