@@ -58,7 +58,6 @@ linux.do 上对 DeepSeek V4.1 Flash 的共同感受：能干、快，但"多动"
 - 把 [templates/AGENTS.md](../templates/AGENTS.md) 拷到 `%USERPROFILE%\.dsh\AGENTS.md`，按自己的情况改 E、F 两节。所有会话都会带上它。
 - 核心几条：不删除（移到回收站）、没说要改的文件不动、先说要读哪些文件、信息够了就停、拿不准就问。
 - 它是"建议"不是强制，长对话、压缩以后偶尔会忘。真要禁止的（删除、联网下载）靠 DSH 的权限和审批。
-- 极简（Minimal）预设不加载 AGENTS.md。
 
 ## 思考档位和长对话
 
@@ -75,8 +74,8 @@ linux.do 上对 DeepSeek V4.1 Flash 的共同感受：能干、快，但"多动"
 | DSH-better-sidebar | 侧边栏：文件树、文件预览、终端、Git |
 | dsh-context | 看上下文由什么组成、占多少 |
 | dsh-btw | 基于当前对话单独问一句，不调工具、不打断主任务 |
-| dsh-client-ui-git-graph | 从某一步分叉出新对话，走错了能回去 |
-| dsh-client-ui-skill-explorer | 浏览、启停、新建技能 |
+
+（2026-11-07 在 GitHub 和 npm 上核对过以上插件都存在。）
 
 不建议在工作电脑上装：dsh-purge（越狱提示词）、看图插件（图片发到它们自己的云端）、各种"免费模型"插件（直连外部模型；装了也会被 dsh-llm-ferry 拦下，等于白装）、dsh-better-reason-effort（Ferry 的模型已经带好思考档位，用不上）。
 
