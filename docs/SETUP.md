@@ -1,0 +1,135 @@
+# 一步步配置：家里电脑当服务端，工作电脑用 DSH
+
+整体是这样：
+
+```
+工作电脑：DSH + dsh-llm-ferry 插件 ──小块上传──▶ 家里电脑：dsh-ferry 服务端 ──▶ DeepSeek（或别的模型）
+```
+
+工作电脑上不放 DeepSeek 的 Key，Key 只在家里电脑上。
+
+## 一、家里电脑（服务端）
+
+1. 装 Node 24 或更新的版本。
+
+2. 编一个令牌，至少 16 个字符，比如用 `openssl rand -hex 16` 生成。工作电脑连服务端时要用它。
+
+3. 启动服务端。Mac：
+
+   ```sh
+   export DEEPSEEK_API_KEY=sk-...
+   export DSH_FERRY_TOKEN=<令牌>
+   npx -y github:wvans123/dsh-ferry serve
+   ```
+
+   Windows（PowerShell）：
+
+   ```powershell
+   $env:DEEPSEEK_API_KEY = "sk-..."
+   $env:DSH_FERRY_TOKEN = "<令牌>"
+   npx -y github:wvans123/dsh-ferry serve
+   ```
+
+   看到 `DSH Ferry server ... on http://127.0.0.1:8790` 就是起来了。窗口要一直开着。
+
+4. 开到外网。和 Ferry 一样用 Cloudflare Tunnel。临时试用：
+
+   ```sh
+   cloudflared tunnel --url http://127.0.0.1:8790
+   ```
+
+   它会给一个 `https://xxx.trycloudflare.com` 地址，每次启动都会变。长期用建一个固定的命名隧道，指向 `http://127.0.0.1:8790`。
+
+5. 在家里先试一下：
+
+   ```sh
+   curl https://<你的地址>/health
+   ```
+
+   返回 `{"ok":true,"server":"dsh-ferry",...}` 就通了。
+
+## 二、工作电脑（Windows）
+
+下面的命令都在 PowerShell 里执行。`setx` 设的变量要新开一个窗口才生效。
+
+1. 装 Node 24.9 或更新的版本（DSH 要求）。
+
+2. 公司代理和证书。DSH、npm、pnpm 都要用：
+
+   ```powershell
+   setx HTTPS_PROXY "http://<公司代理>:<端口>"
+   setx HTTP_PROXY  "http://<公司代理>:<端口>"
+   ```
+
+   公司会检查 HTTPS 的话，还要让 Node 认公司的证书。装过 ferry 的，直接用 ferry 的证书文件：
+
+   ```powershell
+   setx NODE_EXTRA_CA_CERTS "$env:USERPROFILE\.ferry\ca-bundle.pem"
+   ```
+
+   没装 ferry 的，让 Node 读 Windows 自己的证书库：
+
+   ```powershell
+   setx NODE_USE_SYSTEM_CA 1
+   ```
+
+3. 装 pnpm 和 DSH（新开一个窗口）：
+
+   ```powershell
+   npm install -g pnpm @deepseek-ai/dsh
+   ```
+
+4. 装插件。DSH 的网页版用 `web` 这个 profile，终端版用 `tui`，下面以 `web` 为例。
+
+   能上 GitHub、装了 git 的：
+
+   ```powershell
+   dsh plugin --profile web add github:wvans123/dsh-ferry
+   ```
+
+   没有 git 或上不了 GitHub 的：在能上网的地方下载 `https://codeload.github.com/wvans123/dsh-ferry/tar.gz/main`，存成 `dsh-ferry.tgz`，拷到工作电脑上，然后：
+
+   ```powershell
+   dsh plugin --profile web add C:\路径\dsh-ferry.tgz
+   ```
+
+5. 填服务端地址和令牌。用记事本打开 `%USERPROFILE%\.dsh\profiles\web\cordis.patch.yml`（没有就新建），写入：
+
+   ```yaml
+   - id: llm-ferry
+     config:
+       server: https://<你的地址>
+       token: <令牌>
+   ```
+
+   这台电脑装过 ferry、并且 `ferry login` 连的就是这个服务端的话，这一步可以不做，插件会读 `%USERPROFILE%\.ferry\config.json`。
+
+6. 测一下这台电脑的网络能过多大的请求，并把结果存下来。插件装好后，它的命令在 profile 里：
+
+   ```powershell
+   node "$env:USERPROFILE\.dsh\profiles\web\node_modules\dsh-llm-ferry\bin\dsh-llm-ferry.js" probe --server https://<你的地址> --token <令牌> --save
+   ```
+
+   输出类似 `The limit is about 100 KB. Parts of 80 KB fit.`，测出的块大小会存进 `%USERPROFILE%\.ferry\config.json`，插件启动时读。不测也行，默认就是 80 KB，被拦了会自动减半。
+
+7. 启动 DSH：
+
+   ```powershell
+   dsh web
+   ```
+
+   浏览器会打开 `http://127.0.0.1:3080`。模型选择框里是服务端的模型（`auto (DeepSeek V4.1 Flash)`、`DeepSeek V4.1 Flash`、`DeepSeek V4 Pro`），默认就是 `ferry/auto`。
+
+## 三、确认确实经过了插件和服务端
+
+- DSH 的模型列表里只有服务端给的模型。
+- 家里电脑的服务端窗口里，每问一次都会出现几行记录：先是 `/v1/ferry/commit`（大的对话还有 `/v1/ferry/upload/...` 分块），然后是 `/anthropic/v1/messages`。没有这些记录，说明请求没到服务端。
+- 想看得更细：服务端日志里每行都有 `bytes`（请求大小）。分块和提交不超过你设的块大小，模型请求只有几百字节。
+
+## 常见问题
+
+- 模型列表是空的：插件连不上服务端。先在工作电脑的浏览器里打开 `https://<你的地址>/health` 看看。公司网关要确认的话，先在浏览器里确认一下。
+- 报 `token rejected` 或 401：令牌和服务端的 `DSH_FERRY_TOKEN` 不一致。
+- 报证书错误（`unable to get local issuer certificate` 之类）：第二步的证书没设好，或者设了之后没新开窗口。
+- 请求被拦（HTTP 403）：插件会自动把块减半重发。总是被拦就跑一下第 6 步的 probe；还不行，在第 5 步的配置里加 `compress: false`（有的网关拦压缩过的数据）。
+- 想换模型、加 Kimi 或 Claude：改家里电脑上的服务端配置，见 README 的"自带服务端"。工作电脑不用动，5 分钟内 DSH 里就会出现新模型。
