@@ -50,6 +50,38 @@
 
 ## 二、工作电脑（Windows）
 
+两种装法，任选其一：
+
+- 桌面版（推荐）：DeepSeek Harness 的 Windows 安装包，自带 Node 和 pnpm，不用另装。往下看"二甲"。
+- 命令行版：自己装 Node，用 npm 装 DSH，用浏览器打开网页版。往下看"二乙"。
+
+### 二甲、桌面版
+
+1. 从 [deepseek.com/harness](https://www.deepseek.com/harness) 下载 Windows 安装包并安装。
+
+2. 公司代理和证书（同下面"二乙"的第 2 步）。桌面版从 Windows 继承环境变量，用 `setx` 设好后重新打开桌面版即可。
+
+3. 打开桌面版一次（它会建好自己的 profile），先不用填 DeepSeek Key。
+
+4. 装插件：左侧"插件"→"添加插件"，在输入框里填下面任意一种，点安装，装完点"立即启用"：
+   - `github:wvans123/dsh-ferry`（能上 GitHub 时）；
+   - 下载好的压缩包的完整路径，比如 `C:\Users\你\Downloads\dsh-ferry.tgz`（下载地址见"二乙"第 4 步）。
+
+5. 填服务端地址和令牌：完全退出桌面版（托盘图标右键"退出"），用记事本打开 `%USERPROFILE%\.dsh\profiles\desktop\cordis.patch.yml`，写入：
+
+   ```yaml
+   - id: llm-ferry
+     config:
+       server: https://<你的地址>
+       token: <令牌>
+   ```
+
+6. 重新打开桌面版。新会话的模型应当是 `auto (DeepSeek V4.1 Flash)`，推理等级 High。
+
+测块大小（可选）：桌面版也自带 `dsh` 命令，插件在 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-llm-ferry`，probe 的用法同"二乙"第 6 步（把路径里的 `web` 换成 `desktop`）。
+
+### 二乙、命令行版
+
 下面的命令都在 PowerShell 里执行。`setx` 设的变量要新开一个窗口才生效。
 
 1. 装 Node 24.9 或更新的版本（DSH 要求）。
@@ -128,7 +160,7 @@
 
 ## 常见问题
 
-- 模型列表是空的：插件连不上服务端。先在工作电脑的浏览器里打开 `https://<你的地址>/health` 看看。公司网关要确认的话，先在浏览器里确认一下。
+- 模型列表是空的（"暂无可用模型"）：插件连不上服务端。先在工作电脑的浏览器里打开 `https://<你的地址>/health` 看看。公司网关要确认的话，先在浏览器里确认一下。服务端起来以后，插件 15 秒内会自己再试，不用重启 DSH。
 - 报 `token rejected` 或 401：令牌和服务端的 `DSH_FERRY_TOKEN` 不一致。
 - 报证书错误（`unable to get local issuer certificate` 之类）：第二步的证书没设好，或者设了之后没新开窗口。
 - 请求被拦（HTTP 403）：插件会自动把块减半重发。总是被拦就跑一下第 6 步的 probe；还不行，在第 5 步的配置里加 `compress: false`（有的网关拦压缩过的数据）。

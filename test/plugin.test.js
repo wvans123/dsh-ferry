@@ -65,6 +65,32 @@ test("the model list comes from the server and DSH hears when it changes", async
 	assert.ok((await adapter.listModels(ROUTE)).some((m) => m.id === "gpt-5"));
 });
 
+test("server not up yet: the model list is asked again within seconds, not after five minutes", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const events = [];
+	let up = false;
+	const realFetch = globalThis.fetch;
+	server = await startFakeFerry();
+	const ctx = {
+		llm: { registerAdapter: () => {} }, logger: { info: () => {}, warn: () => {} }, get: () => undefined,
+		emit: (...a) => events.push(a), effect: (fn) => fn(),
+	};
+	const url = server.url;
+	// the "server" answers only once it is up
+	globalThis.fetch = (input, init) => (up ? realFetch(input, init) : Promise.reject(new TypeError("fetch failed")));
+	try {
+		start(ctx, { server: url, token: server.state.token, refreshMinutes: 5 });
+		await new Promise((r) => setImmediate(r));
+		assert.equal(events.length, 0);
+		up = true;
+		t.mock.timers.tick(15_000);
+		for (let i = 0; i < 20 && !events.length; i++) await new Promise((r) => setImmediate(r));
+		assert.deepEqual(events[0], ["llm/models-updated", ROUTE]);
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+});
+
 test("each turn uploads only the new messages; the model gets the whole conversation", async () => {
 	server = await startFakeFerry();
 	const { adapter, refresh } = plugin(server);
