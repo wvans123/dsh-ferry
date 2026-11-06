@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { createAssistantMessage, createSystemMessage, createToolResultMessage, createUserMessage, ToolCallId } from "@deepseek-ai/dsh-llm";
 import { ROUTE, start } from "../lib/index.js";
 import { startFakeFerry } from "./fake-server.js";
 
+process.env.FERRY_HOME = mkdtempSync(join(tmpdir(), "ferry-home-")); // not this computer's ferry settings
+delete process.env.FERRY_CHUNK_BYTES;
 const TOOLS = [{ name: "read", description: "read a file", parameters: { type: "object", properties: { path: { type: "string" } } } }];
 let server;
 afterEach(() => server?.close());
@@ -104,6 +109,17 @@ test("a gateway that stops big requests: smaller parts, and the answer still arr
 	assert.ok(server.state.requests.some((r) => r.status === 403));
 	assert.ok(server.state.requests.filter((r) => r.status === 200).every((r) => r.bytes <= 20 * 1024));
 	assert.ok(JSON.stringify(server.state.chats[0].messages).includes(big));
+});
+
+test("the default part size passes a gateway that stops bodies above 100 KB without a single 403", async () => {
+	server = await startFakeFerry({ blockAbove: 100 * 1024 });
+	const { adapter, refresh } = plugin(server, { chunkBytes: undefined });
+	await refresh();
+	const big = "y".repeat(300 * 1024);
+	const chunks = await ask(adapter, [createSystemMessage("s"), user(big)]);
+	assert.equal(chunks.at(-1).reason.kind, "stop");
+	assert.deepEqual(server.state.requests.filter((r) => r.status !== 200), []);
+	assert.ok(server.state.requests.filter((r) => r.path.startsWith("/v1/ferry/upload/")).length >= 4);
 });
 
 test("context summaries are marked for the server's summary model", async () => {

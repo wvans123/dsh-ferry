@@ -10,7 +10,8 @@ export const MODELS = [
 	{ id: "claude-opus-4-5", api: "anthropic", contextWindow: 200000, maxTokens: 32000, vision: true, provider: "kiro", model: "claude-opus-4-5" },
 ];
 
-/** opts: blockAbove (bytes; bigger bodies get a gateway's 403 page), loseOnce (the first chat answers 409). */
+/** opts: blockAbove (bytes; bigger bodies get a gateway's 403 page), loseOnce (the first chat answers 409),
+ * noProbe (an old server without /v1/ferry/probe). */
 export async function startFakeFerry(opts = {}) {
 	const state = {
 		token: "test-token-0123456789",
@@ -44,6 +45,11 @@ export async function startFakeFerry(opts = {}) {
 		}
 		const auth = req.headers.authorization ?? `Bearer ${req.headers["x-api-key"] ?? ""}`;
 		if (auth !== `Bearer ${state.token}`) return json(res, (log.status = 401), { error: { message: "bad token" } });
+
+		if (url.pathname === "/v1/ferry/probe") {
+			if (opts.noProbe) return json(res, (log.status = 404), { detail: "Not Found" });
+			return json(res, 200, { bytes: body.length });
+		}
 
 		if (req.method === "GET" && url.pathname === "/v1/ferry/models") return json(res, 200, { models: state.models, sessionStore: "memory" });
 

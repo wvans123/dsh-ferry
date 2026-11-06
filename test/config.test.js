@@ -25,6 +25,15 @@ test("plugin settings win over the environment, the environment over ferry login
 	assert.equal(readFerryConfig({ server: "https://c", token: "c" }, env).token, "c");
 });
 
+test("part size: 80 KB unless the plugin settings, FERRY_CHUNK_BYTES or ~/.ferry/config.json say otherwise", () => {
+	assert.equal(readFerryConfig({}, { FERRY_HOME: home({}) }).chunkBytes, 80 * 1024);
+	const FERRY_HOME = home({ "config.json": { chunkBytes: 65536 } });
+	assert.equal(readFerryConfig({}, { FERRY_HOME }).chunkBytes, 65536);
+	assert.equal(readFerryConfig({}, { FERRY_HOME, FERRY_CHUNK_BYTES: "49152" }).chunkBytes, 49152);
+	assert.equal(readFerryConfig({ chunkBytes: 98304 }, { FERRY_HOME, FERRY_CHUNK_BYTES: "49152" }).chunkBytes, 98304);
+	assert.equal(readFerryConfig({ chunkBytes: 100 }, { FERRY_HOME }).chunkBytes, 8192); // never below 8 KB
+});
+
 test("no server set: the Ferry server on this computer", () => {
 	const FERRY_HOME = home({ "local-server.json": { url: "http://127.0.0.1:9999", token: "local" } });
 	assert.deepEqual([readFerryConfig({}, { FERRY_HOME }).server, readFerryConfig({}, { FERRY_HOME }).token],
