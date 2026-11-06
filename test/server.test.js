@@ -191,6 +191,33 @@ test("summaries go to the summary model; DeepSeek's errors reach DSH as they are
 	assert.match(JSON.stringify(failed.at(-1)), /CONTEXT_WINDOW_EXCEEDED|maximum context length/);
 });
 
+test("another OpenAI-compatible provider from the config file: its address, key and model name", async () => {
+	const other = await startFakeDeepSeek();
+	closers.push(other.close);
+	other.state.key = "sk-other-provider";
+	const dir = mkdtempSync(join(tmpdir(), "dsh-ferry-cfg-"));
+	const file = join(dir, "dsh-ferry-server.json");
+	(await import("node:fs")).writeFileSync(file, JSON.stringify({
+		users: [{ name: "a", token: TOKEN }],
+		providers: { other: { baseUrl: `${other.url}/v1`, apiKeyEnv: "OTHER_KEY" } },
+		models: [{ id: "big", provider: "other", model: "big-model-1", contextWindow: 200000, maxTokens: 16000, name: "Big One" }],
+	}));
+	const cfg = loadConfig({ file, env: { OTHER_KEY: "sk-other-provider" } });
+	assert.equal(cfg.searchProvider, null);
+	const { server } = createApp(cfg, { log: () => {} });
+	await new Promise((r) => server.listen(0, "127.0.0.1", r));
+	closers.push(() => new Promise((r) => server.close(r)));
+	const url = `http://127.0.0.1:${server.address().port}`;
+	const { adapter, refresh } = plugin(url);
+	await refresh();
+	assert.deepEqual((await adapter.listModels(ROUTE)).map((m) => m.name), ["auto (Big One)", "Big One"]);
+	const out = await ask(adapter, [createSystemMessage("s"), user("hi")], { model: "big" });
+	assert.equal(out.at(-1).reason.kind, "stop");
+	assert.deepEqual([other.state.requests[0].path, other.state.requests[0].auth, other.state.requests[0].body.model],
+		["/v1/chat/completions", "Bearer sk-other-provider", "big-model-1"]);
+	assert.ok(!(await (await api(url, "/v1/ferry/models")).json()).features.includes("tools"));
+});
+
 test("DeepSeek turning the server's key down reaches DSH as an error", async () => {
 	const { url, ds } = await setup();
 	const { adapter, refresh } = plugin(url);
