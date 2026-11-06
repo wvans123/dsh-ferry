@@ -8,10 +8,10 @@ dsh-llm-ferry 是 DSH 发请求前的最后一步：别的插件改提示词、�
 
 实测：同一个 profile 里装 dsh-llm-ferry、dsh-context、@hytime/dsh-thinking-effort，跑一个读文件的任务，两轮都正常，所有请求都经 Ferry 服务端，分块照常。
 
-有三种情况要注意：
+dsh-llm-ferry 装上后会关掉 DSH 自带的直连模型插件，所以 DSH 里只有 Ferry 这一条模型路线，见 README 的"只从 Ferry 出去"。有三种情况要注意：
 
-1. **自己另外调模型的插件**：看图、答案复查、多模型投票、按任务换模型这类插件，会用它们自己设置里的模型。要在它们的设置里选 Ferry 的模型（`ferry/...`）；选了别的路线，请求就直接从这台电脑发给那家模型，不经 Ferry，也不分块，公司网关可能拦。
-2. **改 llm-pi-ai 设置的插件**：比如 dsh-thinking-effort、dsh-model-capabilities、dsh-plugin-modelsdev。它们只改 llm-pi-ai 自己的模型，对 Ferry 的模型不起作用，也不会弄坏它。Ferry 模型的能力（上下文多大、能不能看图、思考档位）来自 Ferry 服务端。
+1. **自己另外调模型的插件**：答案复查、多模型投票、按任务换模型这类插件，会用它们自己设置里的模型。要在它们的设置里选 Ferry 的模型（`ferry/...`）；选了别的路线会报 `NO_ADAPTER`。看图插件不一样：它们自己直接连云端，不走 DSH 的模型接口，拦不住，工作电脑上别装。
+2. **改 llm-pi-ai 设置的插件**：比如 dsh-thinking-effort、dsh-model-capabilities、dsh-plugin-modelsdev。llm-pi-ai 被关掉后，它们没东西可改，装着也不影响启动（实测 dsh-thinking-effort）。Ferry 模型的能力（上下文多大、能不能看图、思考档位）来自 Ferry 服务端。
 3. **版本**：DSH 插件大多写死了支持的 DSH 版本，DSH 一升级就可能装不上。比如 dsh-ops 0.4.4 只认 DSH 0.2.2 以前的版本，在 0.2.2-rc.1 上被拒绝安装。dsh-llm-ferry 写的是 0.2.2-rc.1 到 0.3 之前。
 
 ## 值得装的

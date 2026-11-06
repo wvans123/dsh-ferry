@@ -1,5 +1,21 @@
-# dsh-llm-ferry: the Ferry server's models in DSH. Server and token come from ~/.ferry/config.json
-# (ferry login) or FERRY_SERVER / FERRY_TOKEN; to set them here instead, add them under config.
+# dsh-llm-ferry: the Ferry server's models in DSH, and the only way out to a model. Server and token come from
+# ~/.ferry/config.json (ferry login) or FERRY_SERVER / FERRY_TOKEN; to set them here instead, add them under config.
 - insert:
     - id: llm-ferry
       name: dsh-llm-ferry
+
+# Every model request leaves through Ferry: DSH's direct model routes are switched off, so a request naming one of
+# them fails ("no adapter") instead of going straight from this computer to a model. llm-ferry only borrows
+# llm-pi-ai's code; it does not need that plugin mounted. To use a direct route again, set disabled: false for it
+# in the profile's own cordis.patch.yml.
+- id: llm-pi-ai
+  disabled: true
+- id: llm-deepseek
+  disabled: true
+- id: llm-deepseek-account
+  disabled: true
+
+- id: agent-default-model
+  config:
+    provider: ferry
+    model: auto

@@ -14,6 +14,19 @@ dsh plugin --profile <profile> add github:wvans123/dsh-ferry
 
 装完重启 DSH，模型选择框里会出现 Ferry 的模型。
 
+## 只从 Ferry 出去
+
+装上以后，模型请求只能经 Ferry 发出：插件关掉 DSH 自带的直连模型插件（`llm-pi-ai`、`llm-deepseek`、`llm-deepseek-account`），默认模型设成 `ferry/auto`。哪个插件要用别的路线，会报 `NO_ADAPTER`，不会从这台电脑直连模型。
+
+想恢复某条直连路线，在 profile 自己的 `cordis.patch.yml` 里写：
+
+```yaml
+- id: llm-deepseek
+  disabled: false
+```
+
+管不到的是插件自己直接发的网络请求（不走 DSH 的模型接口），比如看图插件把图片发到自己的云端。这类插件别装，见 [docs/PLUGINS.md](docs/PLUGINS.md)。DSH 自带的网页搜索用的是 DeepSeek 搜索 API，只在设了 `DEEPSEEK_API_KEY` 时才会连。
+
 ## 服务端地址和令牌
 
 这台电脑用过 `ferry login` 就不用填，插件读 `~/.ferry/config.json`。也认环境变量 `FERRY_SERVER`、`FERRY_TOKEN`。
