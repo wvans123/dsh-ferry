@@ -156,6 +156,9 @@
 
 ## 三、确认确实经过了插件和服务端
 
+先跑自检：`node "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-llm-ferry\bin\dsh-llm-ferry.js" doctor --workspace D:\dsh-work`（命令行版把 desktop 换成 web），它会逐项告诉你哪里不对。装好以后怎么用顺见 [WORK-PC.md](WORK-PC.md)。
+
+
 - DSH 的模型列表里只有服务端给的模型。
 - 家里电脑的服务端窗口里，每问一次都会出现几行记录：先是 `/v1/ferry/commit`（大的对话还有 `/v1/ferry/upload/...` 分块），然后是 `/anthropic/v1/messages`。没有这些记录，说明请求没到服务端。
 - 想看得更细：服务端日志里每行都有 `bytes`（请求大小）。分块和提交不超过你设的块大小，模型请求只有几百字节。

@@ -8,7 +8,8 @@ import { readFileSync } from "node:fs";
 import { readFerryConfig, saveChunkBytes } from "../lib/config.js";
 import { probeLimit } from "../lib/probe.js";
 
-const USAGE = "usage: dsh-llm-ferry probe [--save] [--server <url>] [--token <token>]\n" +
+const USAGE = "usage: dsh-llm-ferry doctor [--profile <name>] [--workspace <dir>]... [--upload] [--server <url>] [--token <token>]\n" +
+	"       dsh-llm-ferry probe [--save] [--server <url>] [--token <token>]\n" +
 	"       dsh-llm-ferry serve [--config <file>] [--port <n>] [--host <addr>]";
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -18,6 +19,7 @@ const flag = (name) => {
 
 if (args[0] === "serve") await serve();
 else if (args[0] === "probe") await probe();
+else if (args[0] === "doctor") await runDoctor();
 else {
 	console.log(USAGE);
 	process.exit(args[0] === "--help" || args[0] === "-h" ? 0 : 2);
@@ -48,6 +50,16 @@ async function serve() {
 	const stop = () => server.close(() => process.exit(0));
 	process.on("SIGINT", stop);
 	process.on("SIGTERM", stop);
+}
+
+async function runDoctor() {
+	const { doctor } = await import("../lib/doctor.js");
+	const workspaces = args.flatMap((a, i) => (a === "--workspace" && args[i + 1] ? [args[i + 1]] : []));
+	const { lines, failed } = await doctor({ profile: flag("--profile"), workspaces, upload: args.includes("--upload"),
+		server: flag("--server"), token: flag("--token") });
+	const mark = { ok: "[ok]  ", warn: "[!]   ", fail: "[FAIL]", info: "[i]   " };
+	for (const l of lines) console.log(`${mark[l.level]} ${l.text}`);
+	process.exit(failed ? 1 : 0);
 }
 
 async function probe() {

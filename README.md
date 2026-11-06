@@ -4,7 +4,7 @@ DeepSeek Harness（DSH）的模型插件，加一个配套的服务端。装上�
 
 服务端有两个选择：用本仓库自带的（下面"自带服务端"），或者用原来的 Ferry 服务端。插件两个都能连。
 
-从零开始配（家里电脑当服务端、工作电脑用 DSH，包括公司代理和证书）：见 [docs/SETUP.md](docs/SETUP.md)。怎么把 DSH 用好（预设、AGENTS.md、技能、写 prompt、子 agent、好用的插件和玩法）：见 [docs/USING-DSH.md](docs/USING-DSH.md)。在微信、企业微信、飞书里给 agent 派任务：见 [docs/IM.md](docs/IM.md)。
+从零开始配（家里电脑当服务端、工作电脑用 DSH，包括公司代理和证书）：见 [docs/SETUP.md](docs/SETUP.md)。怎么把 DSH 用好（预设、AGENTS.md、技能、写 prompt、子 agent、好用的插件和玩法）：见 [docs/USING-DSH.md](docs/USING-DSH.md)。在工作电脑上用顺（自检命令、工作区的坑、PowerShell、AGENTS.md 模板、linux.do 上的经验）：见 [docs/WORK-PC.md](docs/WORK-PC.md)。在微信、企业微信、飞书里给 agent 派任务：见 [docs/IM.md](docs/IM.md)。
 
 ## 自带服务端
 
