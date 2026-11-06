@@ -40,7 +40,8 @@ DEEPSEEK_API_KEY=sk-... DSH_FERRY_TOKEN=<令牌> npx -y github:wvans123/dsh-ferr
 
 自带服务端为 DSH 多做的几件事：
 
-- DeepSeek 的思考档位在 DSH 里能选（关、低、高、最高，Pro 没有低档），不选时默认"高"，和 DSH 直连 DeepSeek 一样；上一轮的思考内容按 DeepSeek 的要求带回去。模型配置里的 `defaultEffort` 可以改默认档位。
+- 调 DeepSeek 的方式和 DSH 自带的 DeepSeek 插件一样：走 DeepSeek 的 Anthropic 兼容接口，思考用 `thinking: enabled` 加 `output_config.effort`，Flash 的系统提示改了放在对话中间（前缀不变，缓存照样命中），上一轮的思考连同签名原样带回。DSH 自带插件额外发的几个统计字段（匿名用户 id、会话日志上传）不发。想改用 OpenAI 格式的接口，在配置里给 deepseek 写 `"api": "openai"`。
+- DeepSeek 的思考档位在 DSH 里能选（关、低、高、最高，Pro 没有低档），不选时默认"高"，和 DSH 直连 DeepSeek 一样。模型配置里的 `defaultEffort` 可以改默认档位。
 - DeepSeek 忙（429、503 等）时，服务端在开始回复前自动等一下再问，最多两次，DSH 那边只是慢一点，不会报错。
 - 上传先压缩再切块。普通文字一般压到几分之一，300 KB 的对话在 100 KB 的网关下一次就过。
 - DeepSeek 报的缓存命中原样传给 DSH，DSH 的用量里能看到 `cacheReadTokens`。

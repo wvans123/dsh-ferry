@@ -30,34 +30,49 @@ import { existsSync, readFileSync } from "node:fs";
 const DEEPSEEK_COMPAT = { supportsStore: false, supportsDeveloperRole: false, maxTokensField: "max_tokens",
 	requiresReasoningContentOnAssistantMessages: true, thinkingFormat: "deepseek", supportsStrictMode: true };
 // defaultEffort "high": DeepSeek thinks unless told not to, as when DSH talks to it directly.
-export const PRESETS = {
-	"deepseek-flash": { provider: "deepseek", model: "deepseek-flash", name: "DeepSeek V4.1 Flash", contextWindow: 1_000_000,
-		maxTokens: 384_000, vision: true, price: { input: 0.3, output: 1.2, cache_read: 0.006 }, reasoning: true,
-		thinkingLevelMap: { minimal: null, low: "low", medium: null, high: "high", max: "max" }, compat: DEEPSEEK_COMPAT,
-		defaultEffort: "high" },
-	"deepseek-v4-pro": { provider: "deepseek", model: "deepseek-v4-pro", name: "DeepSeek V4 Pro", contextWindow: 1_000_000,
-		maxTokens: 384_000, vision: false, price: { input: 1.32, output: 3.96, cache_read: 0.044 }, reasoning: true,
-		thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", max: "max" },
-		compat: { ...DEEPSEEK_COMPAT, supportsMidConvoSystemMessages: true }, defaultEffort: "high" },
+// By default DeepSeek is reached the way DSH's own DeepSeek adapter reaches it: its Anthropic-compatible Messages API,
+// thinking as { type: "enabled" } plus output_config.effort, and (Flash) a changed system prompt sent inside the
+// history so the cached prefix survives. "api": "openai" on the deepseek provider uses Chat Completions instead.
+const LEVELS = { flash: { minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: "max" },
+	pro: { minimal: null, low: null, medium: null, high: "high", xhigh: null, max: "max" } };
+const DEEPSEEK = {
+	"deepseek-flash": { name: "DeepSeek V4.1 Flash", vision: true, price: { input: 0.3, output: 1.2, cache_read: 0.006 },
+		levels: LEVELS.flash, midConvoSystem: { anthropic: true, openai: false } },
+	"deepseek-v4-pro": { name: "DeepSeek V4 Pro", vision: false, price: { input: 1.32, output: 3.96, cache_read: 0.044 },
+		levels: LEVELS.pro, midConvoSystem: { anthropic: false, openai: true } },
 };
+/** The preset for one DeepSeek model on the given API (pi-ai's terms for thinking and protocol details). */
+export function deepseekPreset(id, api) {
+	const d = DEEPSEEK[id];
+	const mid = d.midConvoSystem[api] ? { supportsMidConvoSystemMessages: true } : {};
+	return { provider: "deepseek", model: id, name: d.name, contextWindow: 1_048_576, maxTokens: 384_000, vision: d.vision,
+		price: d.price, reasoning: true, thinkingLevelMap: d.levels, defaultEffort: "high",
+		compat: api === "anthropic" ? { forceAdaptiveThinking: true, ...mid } : { ...DEEPSEEK_COMPAT, ...mid } };
+}
+export const PRESETS = Object.fromEntries(Object.keys(DEEPSEEK).map((id) => [id, deepseekPreset(id, "anthropic")]));
 const PROVIDER_DEFAULTS = {
-	deepseek: { baseUrl: "https://api.deepseek.com", apiKeyEnv: "DEEPSEEK_API_KEY", toolsBaseUrl: "https://api.deepseek.com/v1/tools" },
+	deepseek: { baseUrl: { anthropic: "https://api.deepseek.com/anthropic", openai: "https://api.deepseek.com" },
+		apiKeyEnv: "DEEPSEEK_API_KEY", toolsBaseUrl: "https://api.deepseek.com/v1/tools", api: "anthropic", dialect: "deepseek" },
 	anthropic: { baseUrl: "https://api.anthropic.com", apiKeyEnv: "ANTHROPIC_API_KEY", api: "anthropic" },
 };
 
-export function loadConfig({ file, env = process.env } = {}) {
-	const path = file ?? (existsSync("dsh-ferry-server.json") ? "dsh-ferry-server.json" : null);
-	const raw = path ? JSON.parse(readFileSync(path, "utf8")) : {};
+/** file: the JSON settings file; raw: the same settings as an object (tests). */
+export function loadConfig({ file, raw: given, env = process.env } = {}) {
+	const path = file ?? (given || !existsSync("dsh-ferry-server.json") ? null : "dsh-ferry-server.json");
+	const raw = given ?? (path ? JSON.parse(readFileSync(path, "utf8")) : {});
 	const providers = {};
 	for (const [name, p] of Object.entries({ ...(raw.providers ?? { deepseek: {} }) })) {
 		const d = PROVIDER_DEFAULTS[name] ?? {};
-		const baseUrl = String(p.baseUrl ?? d.baseUrl ?? "").replace(/\/+$/, "");
+		const api = p.api ?? d.api ?? "openai";
+		if (api !== "openai" && api !== "anthropic") throw new Error(`provider "${name}": api must be "openai" or "anthropic"`);
+		const fallback = typeof d.baseUrl === "object" ? d.baseUrl[api] : d.baseUrl;
+		const baseUrl = String(p.baseUrl ?? fallback ?? "").replace(/\/+$/, "");
 		if (!baseUrl) throw new Error(`provider "${name}" needs a baseUrl`);
 		const keyEnv = p.apiKeyEnv ?? d.apiKeyEnv;
 		const toolsBaseUrl = String(p.toolsBaseUrl ?? d.toolsBaseUrl ?? "").replace(/\/+$/, "");
-		const api = p.api ?? d.api ?? "openai";
-		if (api !== "openai" && api !== "anthropic") throw new Error(`provider "${name}": api must be "openai" or "anthropic"`);
-		providers[name] = { name, baseUrl, toolsBaseUrl, api, apiKey: p.apiKey ?? (keyEnv ? env[keyEnv] ?? "" : ""), keyEnv };
+		// "deepseek": DeepSeek's own API behind it (also for a provider of another name pointing at api.deepseek.com)
+		const dialect = p.dialect ?? d.dialect ?? (/\/\/api\.deepseek\.com(\/|$)/.test(baseUrl) ? "deepseek" : undefined);
+		providers[name] = { name, baseUrl, toolsBaseUrl, api, dialect, apiKey: p.apiKey ?? (keyEnv ? env[keyEnv] ?? "" : ""), keyEnv };
 	}
 	// web search and page reading for DSH: DeepSeek's Search and Fetch APIs, with the server's key
 	const searchProvider = raw.searchProvider ?? (providers.deepseek?.toolsBaseUrl ? "deepseek" : null);
@@ -66,7 +81,9 @@ export function loadConfig({ file, env = process.env } = {}) {
 	}
 	const models = new Map();
 	for (const m of raw.models ?? Object.keys(PRESETS).map((id) => ({ id }))) {
-		const def = { ...(PRESETS[m.id] ?? {}), ...m };
+		const presetProvider = m.provider ?? "deepseek";
+		const preset = DEEPSEEK[m.id] && providers[presetProvider] ? deepseekPreset(m.id, providers[presetProvider].api) : {};
+		const def = { ...preset, ...m };
 		if (!providers[def.provider]) throw new Error(`model "${m.id}" names provider "${def.provider}", which is not configured`);
 		if (def.catalog !== undefined && !/^[\w.-]+\/.+$/.test(def.catalog)) throw new Error(`model "${m.id}": catalog is "provider/model-id"`);
 		// a catalog model's size and abilities come from the catalog (the plugin looks them up); others get plain defaults

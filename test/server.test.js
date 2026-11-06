@@ -26,8 +26,8 @@ afterEach(async () => {
 async function setup(opts = {}) {
 	const ds = await startFakeDeepSeek();
 	closers.push(ds.close);
-	const cfg = loadConfig({ env: { DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } });
-	cfg.providers.deepseek.baseUrl = ds.url;
+	const cfg = loadConfig({ raw: { providers: { deepseek: { api: "openai", baseUrl: ds.url } } },
+		env: { DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } }); // Chat Completions: the fake speaks that
 	Object.assign(cfg, opts.cfg ?? {});
 	const lines = [];
 	const { server, store } = createApp(cfg, { log: (l) => lines.push(l) });

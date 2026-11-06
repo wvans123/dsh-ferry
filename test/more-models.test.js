@@ -45,8 +45,8 @@ function serverWith(raw, env) {
 test("DeepSeek thinks by default: DSH is told the default level, and an explicit off still turns it off", async () => {
 	const ds = await startFakeDeepSeek();
 	closers.push(ds.close);
-	const cfg = loadConfig({ env: { DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } });
-	cfg.providers.deepseek.baseUrl = ds.url;
+	const cfg = loadConfig({ raw: { providers: { deepseek: { api: "openai", baseUrl: ds.url } } },
+		env: { DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } }); // Chat Completions: the fake speaks that
 	const url = await listen(createApp(cfg, { log: () => {} }).server);
 	const { adapter, refresh } = plugin(url);
 	await refresh();
@@ -65,8 +65,8 @@ test("DeepSeek thinks by default: DSH is told the default level, and an explicit
 test("a busy DeepSeek (503, 429) is asked again before DSH sees anything; a bad request is not", async () => {
 	const ds = await startFakeDeepSeek();
 	closers.push(ds.close);
-	const cfg = loadConfig({ env: { DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } });
-	cfg.providers.deepseek.baseUrl = ds.url;
+	const cfg = loadConfig({ raw: { providers: { deepseek: { api: "openai", baseUrl: ds.url } } },
+		env: { DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } }); // Chat Completions: the fake speaks that
 	const url = await listen(createApp(cfg, { log: () => {} }).server);
 	const { adapter, refresh } = plugin(url);
 	await refresh();

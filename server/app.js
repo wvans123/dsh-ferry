@@ -27,6 +27,15 @@ const sleep = (ms, signal) => new Promise((resolve) => {
 });
 
 /**
+ * DeepSeek's Messages API, asked the way DSH's own DeepSeek adapter asks it: thinking { type: "enabled" } with the level
+ * in output_config.effort (pi-ai writes Claude's "adaptive" form; DeepSeek takes both, this keeps requests identical).
+ */
+export function deepseekThinking(payload) {
+	if (payload.thinking?.type === "adaptive") payload.thinking = { type: "enabled" };
+	if (payload.thinking?.type === "enabled") delete payload.thinking.display;
+}
+
+/**
  * Put back the prompt-cache markers the plugin took out before syncing (they move every turn, so they are not part of
  * the stored conversation). marks: [[message index, block index, cache_control]], counted with "__system__" first.
  */
@@ -183,6 +192,7 @@ export function createApp(cfg, deps = {}) {
 		if (api === "anthropic") {
 			restoreCacheMarks(payload.messages ?? [], ref?.cache ?? []);
 			if (payload.messages?.[0]?.role === "__system__") payload.system = payload.messages.shift().content;
+			if (p.dialect === "deepseek") deepseekThinking(payload);
 			url = /\/v1$/.test(p.baseUrl) ? `${p.baseUrl}/messages` : `${p.baseUrl}/v1/messages`;
 			headers = { "content-type": "application/json", "x-api-key": p.apiKey,
 				"anthropic-version": req.headers["anthropic-version"] ?? "2023-06-01",
