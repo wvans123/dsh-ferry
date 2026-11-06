@@ -19,3 +19,16 @@
   config:
     provider: ferry
     model: auto
+
+# web_search through the server too (DeepSeek Search API with the server's key), when the server offers it; DSH's own
+# DeepSeek search plugins would call DeepSeek from this computer with a key of its own, so they are off. Pages are
+# still read on this computer (intranet pages too); choose ferry-fetch in the web settings to read public pages on
+# the server instead.
+- id: web
+  config:
+    searchProvider: ferry-search
+    fetchProvider: http
+- id: web-search-deepseek
+  disabled: true
+- id: web-deepseek-api
+  disabled: true

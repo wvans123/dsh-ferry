@@ -8,8 +8,11 @@
 //     "providers": { "deepseek": { "apiKeyEnv": "DEEPSEEK_API_KEY" },
 //                    "other": { "baseUrl": "https://api.example.com/v1", "apiKeyEnv": "OTHER_KEY" } },
 //     "models": [{ "id": "deepseek-v4-pro" }, { "id": "big", "provider": "other", "model": "big-1", "contextWindow": 200000 }],
-//     "defaultModel": "deepseek-flash", "summaryModel": "deepseek-flash"
+//     "defaultModel": "deepseek-flash", "summaryModel": "deepseek-flash",
+//     "searchProvider": "deepseek"
 //   }
+// searchProvider: whose Search and Fetch APIs answer DSH's web_search / web_fetch (default: deepseek, when configured;
+// a provider other than deepseek needs a "toolsBaseUrl" speaking the same API).
 // A model whose id is a DeepSeek preset needs nothing else; its sizes, prices and thinking levels come from below.
 import { existsSync, readFileSync } from "node:fs";
 
@@ -27,7 +30,8 @@ export const PRESETS = {
 		thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", max: "max" },
 		compat: { ...DEEPSEEK_COMPAT, supportsMidConvoSystemMessages: true } },
 };
-const PROVIDER_DEFAULTS = { deepseek: { baseUrl: "https://api.deepseek.com", apiKeyEnv: "DEEPSEEK_API_KEY" } };
+const PROVIDER_DEFAULTS = { deepseek: { baseUrl: "https://api.deepseek.com", apiKeyEnv: "DEEPSEEK_API_KEY",
+	toolsBaseUrl: "https://api.deepseek.com/v1/tools" } };
 
 export function loadConfig({ file, env = process.env } = {}) {
 	const path = file ?? (existsSync("dsh-ferry-server.json") ? "dsh-ferry-server.json" : null);
@@ -38,7 +42,13 @@ export function loadConfig({ file, env = process.env } = {}) {
 		const baseUrl = String(p.baseUrl ?? d.baseUrl ?? "").replace(/\/+$/, "");
 		if (!baseUrl) throw new Error(`provider "${name}" needs a baseUrl`);
 		const keyEnv = p.apiKeyEnv ?? d.apiKeyEnv;
-		providers[name] = { name, baseUrl, apiKey: p.apiKey ?? (keyEnv ? env[keyEnv] ?? "" : ""), keyEnv };
+		const toolsBaseUrl = String(p.toolsBaseUrl ?? d.toolsBaseUrl ?? "").replace(/\/+$/, "");
+		providers[name] = { name, baseUrl, toolsBaseUrl, apiKey: p.apiKey ?? (keyEnv ? env[keyEnv] ?? "" : ""), keyEnv };
+	}
+	// web search and page reading for DSH: DeepSeek's Search and Fetch APIs, with the server's key
+	const searchProvider = raw.searchProvider ?? (providers.deepseek?.toolsBaseUrl ? "deepseek" : null);
+	if (searchProvider && !providers[searchProvider]?.toolsBaseUrl) {
+		throw new Error(`searchProvider "${searchProvider}" needs a provider with a toolsBaseUrl`);
 	}
 	const models = new Map();
 	for (const m of raw.models ?? Object.keys(PRESETS).map((id) => ({ id }))) {
@@ -65,6 +75,7 @@ export function loadConfig({ file, env = process.env } = {}) {
 		models,
 		defaultModel,
 		summaryModel: raw.summaryModel ?? null,
+		searchProvider,
 		users,
 	};
 }

@@ -23,6 +23,7 @@ DEEPSEEK_API_KEY=sk-... DSH_FERRY_TOKEN=<令牌> npx -y github:wvans123/dsh-ferr
 - DeepSeek 的思考档位在 DSH 里能选（关、低、高、最高，Pro 没有低档），上一轮的思考内容按 DeepSeek 的要求带回去。
 - 上传先压缩再切块。普通文字一般压到几分之一，300 KB 的对话在 100 KB 的网关下一次就过。
 - DeepSeek 报的缓存命中原样传给 DSH，DSH 的用量里能看到 `cacheReadTokens`。
+- DSH 的网页搜索（`web_search`）也经服务端：服务端用自己的 Key 调 DeepSeek 搜索 API，工作电脑上不用放 DeepSeek 的 Key，只把搜索词发给服务端。读网页默认还在本机（内网页面也能读）；想让公网页面由服务端读，在 DSH 的网页设置里把抓取选成 "Ferry server"（`ferry-fetch`）。
 
 ## 安装插件
 
@@ -58,7 +59,9 @@ dsh plugin --profile <profile> add github:wvans123/dsh-ferry
   disabled: false
 ```
 
-管不到的是插件自己直接发的网络请求（不走 DSH 的模型接口），比如看图插件把图片发到自己的云端。这类插件别装，见 [docs/PLUGINS.md](docs/PLUGINS.md)。DSH 自带的网页搜索用的是 DeepSeek 搜索 API，只在设了 `DEEPSEEK_API_KEY` 时才会连。
+网页搜索同样只走服务端：插件把 DSH 的搜索换成 `ferry-search`，并关掉 DSH 自带的两个 DeepSeek 搜索插件（它们会用本机的 Key 直连 DeepSeek）。服务端不支持搜索时（比如原来的 Ferry 服务端），DSH 就不提供 `web_search`。
+
+管不到的是插件自己直接发的网络请求（不走 DSH 的模型接口），比如看图插件把图片发到自己的云端。这类插件别装，见 [docs/PLUGINS.md](docs/PLUGINS.md)。
 
 ## 每块多大
 

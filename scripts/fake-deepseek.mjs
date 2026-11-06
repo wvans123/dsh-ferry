@@ -10,7 +10,14 @@ createServer(async (req, res) => {
 	const chunks = [];
 	for await (const c of req) chunks.push(c);
 	const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
-	appendFileSync(log, `${JSON.stringify({ at: new Date().toISOString(), auth: req.headers.authorization === "Bearer sk-fake-deepseek", body })}\n`);
+	appendFileSync(log, `${JSON.stringify({ at: new Date().toISOString(), path: req.url, auth: req.headers.authorization === "Bearer sk-fake-deepseek", body })}\n`);
+	if (req.url.startsWith("/v1/tools/")) { // DeepSeek's Search and Fetch APIs
+		res.writeHead(200, { "content-type": "application/json" });
+		return res.end(JSON.stringify(req.url.endsWith("/search")
+			? { results: [{ url: "https://www.3gpp.org/ftp/Specs/archive/38_series/38.331", title: `Result for ${body.query}`,
+				snippet: "TS 38.331 NR RRC protocol specification", summary: "Radio Resource Control (RRC) protocol for NR.", date: "2026-10-01" }] }
+			: { content: `# ${body.url}\nPage text.` }));
+	}
 	const send = (delta, finish = null) => res.write(`data: ${JSON.stringify({ id: "fake", object: "chat.completion.chunk",
 		model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
 	res.writeHead(200, { "content-type": "text/event-stream" });
@@ -19,7 +26,14 @@ createServer(async (req, res) => {
 	const last = msgs.at(-1);
 	const thinking = body.thinking?.type === "enabled";
 	const readTool = (body.tools ?? []).find((t) => t.function?.name === "read");
-	if (last?.role === "tool") {
+	const searchFor = msgs.filter((m) => m.role === "user").map((m) => /Search the web for (.+?)[."]/.exec(JSON.stringify(m.content ?? ""))?.[1])
+		.filter(Boolean).at(-1);
+	const hasSearch = (body.tools ?? []).some((t) => t.function?.name === "web_search");
+	if (last?.role !== "tool" && searchFor && hasSearch) {
+		send({ tool_calls: [{ index: 0, id: `call_${msgs.length}`, type: "function", function: { name: "web_search",
+			arguments: JSON.stringify({ queries: [searchFor] }) } }] });
+		send({}, "tool_calls");
+	} else if (last?.role === "tool") {
 		if (thinking) send({ reasoning_content: "The tool returned the file. I will quote it." });
 		const text = typeof last.content === "string" ? last.content : JSON.stringify(last.content);
 		send({ content: `FILE SAYS: ${text.slice(0, 300)}` });

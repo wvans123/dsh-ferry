@@ -88,7 +88,7 @@ test("health needs no token; everything else does, and the protocol version is c
 test("the model list: auto plus DeepSeek's models with their thinking levels, and what the server supports", async () => {
 	const { url } = await setup();
 	const body = await (await api(url, "/v1/ferry/models")).json();
-	assert.deepEqual(body.features, ["gzip", "reasoning"]);
+	assert.deepEqual(body.features, ["gzip", "reasoning", "tools"]);
 	assert.deepEqual(body.models.map((m) => m.id), ["auto", "deepseek-flash", "deepseek-v4-pro"]);
 	const flash = body.models[1];
 	assert.equal(flash.reasoning, true);

@@ -7,6 +7,7 @@
 //   POST /v1/ferry/upload/{upload}/{seq}           one part of a big upload
 //   POST /v1/ferry/commit?conv=&base=&base_hash=[&upload=&parts=][&encoding=gzip]
 //   POST /v1/chat/completions                      OpenAI-style; its "ferry" field names the stored conversation
+//   POST /v1/tools/search, /v1/tools/fetch         DeepSeek's Search and Fetch APIs, with the server's key
 // No conversation text is logged.
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
@@ -14,7 +15,6 @@ import { gunzipSync } from "node:zlib";
 import { Conflict, Store } from "./store.js";
 
 export const PROTOCOL = "1";
-export const FEATURES = ["gzip", "reasoning"];
 const MAX_UNZIPPED = 64 * 1024 * 1024;
 
 const digest = (s) => createHash("sha256").update(s).digest();
@@ -67,10 +67,29 @@ export function createApp(cfg, deps = {}) {
 			...(m.compat ? { compat: m.compat } : {}) };
 	}
 
+	const searcher = () => (cfg.searchProvider ? cfg.providers[cfg.searchProvider] : null);
+
 	function models() {
 		const list = [describe("auto", cfg.models.get(cfg.defaultModel))];
 		for (const [id, m] of cfg.models) list.push(describe(id, m));
-		return { models: list, sessionStore: "memory", features: FEATURES };
+		// "tools": /v1/tools/search and /fetch answer (a name of its own: the Ferry server's "search" is another API)
+		return { models: list, sessionStore: "memory", features: ["gzip", "reasoning", ...(searcher()?.apiKey ? ["tools"] : [])] };
+	}
+
+	async function tools(req, res, op) {
+		const p = searcher();
+		if (!p?.apiKey) throw new HttpError(503, "this server has no web search: it needs a DeepSeek API key");
+		const body = await readBody(req);
+		let up;
+		try {
+			up = await fetchImpl(`${p.toolsBaseUrl}/${op}`, { method: "POST", redirect: "manual", body,
+				headers: { "content-type": "application/json", authorization: `Bearer ${p.apiKey}` }, signal: AbortSignal.timeout(90_000) });
+		} catch (e) {
+			throw new HttpError(502, `could not reach ${p.name}'s ${op} API: ${e.cause?.code ?? e.message}`);
+		}
+		res.writeHead(up.status, { "content-type": up.headers.get("content-type") ?? "application/json" });
+		res.end(Buffer.from(await up.arrayBuffer()));
+		return { upstream: up.status };
 	}
 
 	async function commit(req, user, url) {
@@ -147,6 +166,7 @@ export function createApp(cfg, deps = {}) {
 		}
 		if (path === "/v1/ferry/commit") return send(res, 200, await commit(req, user, url));
 		if (path === "/v1/chat/completions") return chat(req, res, user);
+		if (path === "/v1/tools/search" || path === "/v1/tools/fetch") return tools(req, res, path.slice(10));
 		throw new HttpError(404, "not found");
 	}
 
