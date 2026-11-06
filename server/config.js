@@ -12,8 +12,10 @@
 //                { "id": "kimi", "provider": "kimi", "model": "kimi-k2", "catalog": "moonshotai/kimi-k2" },
 //                { "id": "claude", "provider": "anthropic", "model": "claude-sonnet-4-5", "catalog": "anthropic/claude-sonnet-4-5" }],
 //     "defaultModel": "deepseek-flash", "summaryModel": "deepseek-flash",
-//     "searchProvider": "deepseek"
+//     "searchProvider": "deepseek",
+//     "barkUrl": "https://api.day.app/<your key>"
 //   }
+// barkUrl (or BARK_URL): where phone notifications go (a long task finished, an approval waiting).
 // providers: "api" is "openai" (Chat Completions, the default) or "anthropic" (Messages); "deepseek" and "anthropic" need
 // no baseUrl. DeepSeek's own Anthropic-compatible API: { "baseUrl": "https://api.deepseek.com/anthropic", "api": "anthropic",
 // "apiKeyEnv": "DEEPSEEK_API_KEY" }.
@@ -110,6 +112,8 @@ export function loadConfig({ file, raw: given, env = process.env } = {}) {
 		defaultModel,
 		summaryModel: raw.summaryModel ?? null,
 		searchProvider,
+		// Bark (iPhone) push address, https://api.day.app/<key>: phone notifications the plugin asks for
+		barkUrl: String(raw.barkUrl ?? env.BARK_URL ?? env.FERRY_BARK_URL ?? "").replace(/\/+$/, ""),
 		users,
 	};
 }

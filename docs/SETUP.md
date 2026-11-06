@@ -32,6 +32,8 @@
 
    看到 `DSH Ferry server ... on http://127.0.0.1:8790` 就是起来了。窗口要一直开着。
 
+   想要手机通知（任务做完、等你批准），装 Bark App，把它给的地址也设上再启动：`export BARK_URL=https://api.day.app/<你的 key>`（Windows：`$env:BARK_URL = "..."`）。
+
 4. 开到外网。和 Ferry 一样用 Cloudflare Tunnel。临时试用：
 
    ```sh

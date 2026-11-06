@@ -47,6 +47,7 @@ DEEPSEEK_API_KEY=sk-... DSH_FERRY_TOKEN=<令牌> npx -y github:wvans123/dsh-ferr
 - DeepSeek 忙（429、503 等）时，服务端在开始回复前自动等一下再问，最多两次，DSH 那边只是慢一点，不会报错。
 - 上传先压缩再切块。普通文字一般压到几分之一，300 KB 的对话在 100 KB 的网关下一次就过。
 - DeepSeek 报的缓存命中原样传给 DSH，DSH 的用量里能看到 `cacheReadTokens`。
+- 手机通知（Bark）：任务跑了一分钟以上、结束时（完成、出错或被停止），或者有操作等你批准一分钟没人点，推一条到手机。服务端设 `BARK_URL=https://api.day.app/<你的 key>`（或配置里的 `barkUrl`）就开了；工作电脑只把通知交给服务端，不直连 Bark。插件设置里 `notifyAfterSeconds`、`approvalNotifySeconds` 改时长，设 0 关掉。原来的 Ferry 服务端在管理页设了 Bark 也能用。
 - DSH 的网页搜索（`web_search`）也经服务端：服务端用自己的 Key 调 DeepSeek 搜索 API，工作电脑上不用放 DeepSeek 的 Key，只把搜索词发给服务端。读网页默认还在本机（内网页面也能读）；想让公网页面由服务端读，在 DSH 的网页设置里把抓取选成 "Ferry server"（`ferry-fetch`）。
 
 ## 安装插件

@@ -18,6 +18,7 @@ createServer(async (req, res) => {
 				snippet: "TS 38.331 NR RRC protocol specification", summary: "Radio Resource Control (RRC) protocol for NR.", date: "2026-10-01" }] }
 			: { content: `# ${body.url}\nPage text.` }));
 	}
+	if (process.env.FAKE_DELAY_MS) await new Promise((r) => setTimeout(r, Number(process.env.FAKE_DELAY_MS))); // a slow model
 	const send = (delta, finish = null) => res.write(`data: ${JSON.stringify({ id: "fake", object: "chat.completion.chunk",
 		model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
 	res.writeHead(200, { "content-type": "text/event-stream" });

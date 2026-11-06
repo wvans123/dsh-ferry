@@ -9,6 +9,7 @@
 //   POST /v1/chat/completions                      OpenAI-style; its "ferry" field names the stored conversation
 //   POST /anthropic/v1/messages                    the same for models behind an Anthropic Messages API
 //   POST /v1/tools/search, /v1/tools/fetch         DeepSeek's Search and Fetch APIs, with the server's key
+//   POST /v1/ferry/notify                          a phone notification through Bark
 // No conversation text is logged.
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
@@ -114,6 +115,21 @@ export function createApp(cfg, deps = {}) {
 		for (const [id, m] of cfg.models) list.push(describe(id, m));
 		// "tools": /v1/tools/search and /fetch answer (a name of its own: the Ferry server's "search" is another API)
 		return { models: list, sessionStore: "memory", features: ["gzip", "reasoning", ...(searcher()?.apiKey ? ["tools"] : [])] };
+	}
+
+	/** POST /v1/ferry/notify {title, body, kind}: push to the phone through Bark. Same as the Ferry server's. */
+	async function notify(req) {
+		const b = JSON.parse((await readBody(req)).toString("utf8") || "{}");
+		if (!cfg.barkUrl) return { ok: false, error: "no Bark address on the server (barkUrl or BARK_URL)" };
+		const payload = { title: String(b.title ?? "DSH").slice(0, 80), body: String(b.body ?? "").slice(0, 500), group: "DSH",
+			...(b.kind === "approval" ? { level: "timeSensitive" } : {}) };
+		try {
+			const r = await fetchImpl(cfg.barkUrl, { method: "POST", headers: { "content-type": "application/json" },
+				body: JSON.stringify(payload), signal: AbortSignal.timeout(15_000) });
+			return r.ok ? { ok: true, kind: b.kind ?? "" } : { ok: false, error: `Bark answered HTTP ${r.status}` };
+		} catch (e) {
+			return { ok: false, error: `cannot reach Bark: ${e.cause?.code ?? e.message}` };
+		}
 	}
 
 	async function tools(req, res, op) {
@@ -228,6 +244,11 @@ export function createApp(cfg, deps = {}) {
 		if (req.method === "GET" && path === "/v1/ferry/models") return send(res, 200, models());
 		if (req.method !== "POST") throw new HttpError(404, "not found");
 		if (path === "/v1/ferry/probe") return send(res, 200, { bytes: (await readBody(req)).length });
+		if (path === "/v1/ferry/notify") {
+			const answer = await notify(req);
+			send(res, 200, answer);
+			return { notify: answer.ok };
+		}
 		const part = path.match(/^\/v1\/ferry\/upload\/([\w-]{1,64})\/(\d{1,6})$/);
 		if (part) {
 			store.putPart(user, part[1], Number(part[2]), await readBody(req));
