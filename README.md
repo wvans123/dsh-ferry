@@ -72,18 +72,17 @@ dsh plugin --profile <profile> add github:wvans123/dsh-ferry
 
 ## 只从服务端出去
 
-装上以后，模型请求只能经服务端发出：插件关掉 DSH 自带的直连模型插件（`llm-pi-ai`、`llm-deepseek`、`llm-deepseek-account`），默认模型设成 `ferry/auto`。哪个插件要用别的路线，会报 `NO_ADAPTER`，不会从这台电脑直连模型。
+装上以后，DSH 里每一次模型调用都经本插件、到服务端、再发给模型。装别的插件、自己改配置都可以，最后一步不变：
 
-想恢复某条直连路线，在 profile 自己的 `cordis.patch.yml` 里写：
+- DSH 的每个模型请求发出前都要经过同一个关口（`llm/stream`），插件守在这里：请求的不是 Ferry 的路线，就交给 Ferry 发出，服务端有同名模型用同名的，没有就用 `auto`。所以别的插件自带的模型路线、重新打开的 DSH 自带 DeepSeek 插件、答案复查或按任务换模型的插件，照常能用，只是都经 Ferry 出去。
+- 插件或 DSH 自己用 `fetch` 直连常见的模型接口（api.deepseek.com、api.openai.com、api.anthropic.com、Kimi、GLM、通义、OpenRouter 等）一律拒绝。确实要放行某个地址，在插件设置里写 `allowDirectHosts`。
+- 默认关掉 DSH 自带的直连模型插件（`llm-pi-ai`、`llm-deepseek`、`llm-deepseek-account`），默认模型设成 `ferry/auto`。打开它们也不会绕过 Ferry，只是多一份没用的模型列表。
 
-```yaml
-- id: llm-deepseek
-  disabled: false
-```
+实测：装一个自带模型路线、启动时还直连 OpenAI 的测试插件，把默认模型设成它的路线，回答照常，请求全部经 Ferry 服务端，那条路线一次都没被真正调用；把 DSH 自带的 DeepSeek 插件打开并给它 Key，请求同样经 Ferry，它去 api.deepseek.com 拉模型列表也被拦下。
 
 网页搜索同样只走服务端：插件把 DSH 的搜索换成 `ferry-search`，并关掉 DSH 自带的两个 DeepSeek 搜索插件（它们会用本机的 Key 直连 DeepSeek）。自带服务端用 DeepSeek 搜索 API；原来的 Ferry 服务端用它管理页里设的搜索引擎。服务端没有搜索时，DSH 就不提供 `web_search`。
 
-管不到的是插件自己直接发的网络请求（不走 DSH 的模型接口），比如看图插件把图片发到自己的云端。这类插件别装，见 [docs/PLUGINS.md](docs/PLUGINS.md)。
+管不到的是插件绕开 `fetch`（用 node:http 之类）直接发的网络请求，或者发到不在上面名单里的地址，比如看图插件把图片发到自己的云端。这类插件别装，见 [docs/PLUGINS.md](docs/PLUGINS.md)；公司网络是最后一道关。
 
 ## 每块多大
 
