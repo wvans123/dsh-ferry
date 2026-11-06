@@ -31,13 +31,21 @@ async function ask(messages, effort) {
 }
 const usageOf = (chunks) => chunks.find((c) => c.type === "usage")?.usage ?? {};
 
-const history = [system, createUserMessage({ content: [{ type: "text", text: "What is the ticket number in notes.txt? Use the read tool. Read notes.txt and report." }], source: { kind: "check" } })];
+const thinkText = (chunks) => chunks.filter((c) => c.type === "reasoning-delta").map((c) => c.text).join("");
+// DeepSeek decides how much to think: an easy question with a tool at hand often goes straight to the tool. A question
+// that needs working out shows the thinking comes back to DSH.
+const puzzle = await ask([system, createUserMessage({ content: [{ type: "text",
+	text: "How many prime numbers are there between 1 and 60? Work it out, then give only the number." }], source: { kind: "check" } })], "high");
+const puzzleThought = thinkText(puzzle);
+console.log(`thinking: ${puzzleThought.length} chars, answer "${puzzle.filter((c) => c.type === "text-delta").map((c) => c.text).join("").trim()}"`);
+assert.ok(puzzleThought.length > 0, "DeepSeek thought and the thinking reached DSH");
+
+const history = [system, createUserMessage({ content: [{ type: "text",
+	text: "Read notes.txt with the read tool, then think about whether its deadline is realistic and give the ticket number." }], source: { kind: "check" } })];
 const first = await ask(history, "high");
-const thought = first.filter((c) => c.type === "reasoning-delta").map((c) => c.text).join("");
 const blocks = first.filter((c) => c.type === "block-end").map((c) => c.block);
 const call = blocks.find((b) => b.type === "tool-call");
-console.log(`turn 1: thought ${thought.length} chars; tool ${call?.name} ${call?.arguments}; usage ${JSON.stringify(usageOf(first))}`);
-assert.ok(thought.length > 0, "DeepSeek thought (reasoning_content came back)");
+console.log(`turn 1: thought ${thinkText(first).length} chars; tool ${call?.name} ${call?.arguments}; usage ${JSON.stringify(usageOf(first))}`);
 assert.ok(call, "DeepSeek asked for the tool");
 
 history.push(
@@ -46,8 +54,17 @@ history.push(
 );
 const second = await ask(history, "high");
 const answer = second.filter((c) => c.type === "text-delta").map((c) => c.text).join("");
-console.log(`turn 2: "${answer.slice(0, 160)}"; usage ${JSON.stringify(usageOf(second))}`);
-assert.match(answer, /EMP-12345/);
+console.log(`turn 2: thought ${thinkText(second).length} chars; "${answer.slice(0, 160)}"; usage ${JSON.stringify(usageOf(second))}`);
+assert.match(answer, /EMP-12345/); // DeepSeek took the replayed assistant turn (its reasoning_content) without complaint
+
+// one more tool round whose first turn did think, so thinking that is not empty goes back to DeepSeek
+history.push(
+	createAssistantMessage({ content: second.filter((c) => c.type === "block-end").map((c) => c.block),
+		source: { provider: ROUTE, model, replayState: second.at(-1).replayState } }),
+	createUserMessage({ content: [{ type: "text", text: "Now think step by step: if the report takes 3 days and today is Tuesday, can it ship by Friday? Answer yes or no with one reason." }], source: { kind: "check" } }),
+);
+const third = await ask(history, "high");
+console.log(`turn 3: thought ${thinkText(third).length} chars; "${third.filter((c) => c.type === "text-delta").map((c) => c.text).join("").slice(0, 160)}"`);
 
 const again = await ask(history, "high");
 const cached = usageOf(again).cacheReadTokens ?? 0;
