@@ -1,7 +1,7 @@
 {
   "name": "dsh-llm-ferry",
-  "version": "0.3.0",
-  "description": "DeepSeek Harness model plugin: the models of a Ferry server, sent in small incremental uploads",
+  "version": "0.4.0",
+  "description": "DeepSeek Harness model plugin and its server: DeepSeek (or a Ferry server) behind small, compressed incremental uploads",
   "license": "MIT",
   "type": "module",
   "main": "./lib/index.js",
@@ -12,6 +12,7 @@
   "files": [
     "bin",
     "lib",
+    "server",
     "cordis.patch.yml"
   ],
   "keywords": [
