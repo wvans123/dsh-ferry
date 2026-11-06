@@ -7,6 +7,7 @@
 //   POST /v1/ferry/upload/{upload}/{seq}           one part of a big upload
 //   POST /v1/ferry/commit?conv=&base=&base_hash=[&upload=&parts=][&encoding=gzip]
 //   POST /v1/chat/completions                      OpenAI-style; its "ferry" field names the stored conversation
+//   POST /anthropic/v1/messages                    the same for models behind an Anthropic Messages API
 //   POST /v1/tools/search, /v1/tools/fetch         DeepSeek's Search and Fetch APIs, with the server's key
 // No conversation text is logged.
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -18,6 +19,30 @@ export const PROTOCOL = "1";
 const MAX_UNZIPPED = 64 * 1024 * 1024;
 
 const digest = (s) => createHash("sha256").update(s).digest();
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 529]);
+
+const sleep = (ms, signal) => new Promise((resolve) => {
+	const t = setTimeout(resolve, ms);
+	signal?.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+});
+
+/**
+ * Put back the prompt-cache markers the plugin took out before syncing (they move every turn, so they are not part of
+ * the stored conversation). marks: [[message index, block index, cache_control]], counted with "__system__" first.
+ */
+export function restoreCacheMarks(msgs, marks) {
+	for (const [i, j, cc] of marks) {
+		const m = msgs[i];
+		if (!m) continue;
+		let at = j;
+		if (typeof m.content === "string") {
+			m.content = [{ type: "text", text: m.content }];
+			at = 0;
+		}
+		const block = Array.isArray(m.content) ? m.content.at(at) : null;
+		if (block && typeof block === "object") block.cache_control = cc;
+	}
+}
 
 class HttpError extends Error {
 	constructor(status, message) {
@@ -60,8 +85,14 @@ export function createApp(cfg, deps = {}) {
 
 	function describe(id, m) {
 		const p = cfg.providers[m.provider];
-		return { id, name: id === "auto" ? `auto (${m.name ?? m.id})` : (m.name ?? id), provider: "", model: m.model, api: "openai",
-			contextWindow: m.contextWindow, maxTokens: m.maxTokens, vision: !!m.vision, price: m.price ?? {}, ready: !!p.apiKey,
+		const label = m.name ?? m.id;
+		return { id, name: id === "auto" ? `auto (${label})` : (m.name ?? id), provider: "", model: m.model, api: m.api,
+			price: m.price ?? {}, ready: !!p.apiKey,
+			...(m.contextWindow !== undefined ? { contextWindow: m.contextWindow } : {}),
+			...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
+			...(m.vision !== undefined ? { vision: !!m.vision } : {}),
+			...(m.catalog ? { catalog: m.catalog } : {}),
+			...(m.defaultEffort ? { defaultEffort: m.defaultEffort } : {}),
 			...(m.reasoning !== undefined ? { reasoning: !!m.reasoning } : {}),
 			...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
 			...(m.compat ? { compat: m.compat } : {}) };
@@ -107,7 +138,29 @@ export function createApp(cfg, deps = {}) {
 		return store.commit(user, q.get("conv"), Number(q.get("base")), q.get("base_hash") ?? "", blob.append, blob.tools ?? null);
 	}
 
-	async function chat(req, res, user) {
+	/**
+	 * POST to the model's API; a busy or failing upstream (429, 5xx, 529 "overloaded") is asked again after a short
+	 * wait, at most twice, before anything has been sent back: DSH sees one slower answer instead of an error.
+	 */
+	async function upstream(url, init, signal, name) {
+		for (let attempt = 0; ; attempt++) {
+			let up;
+			try {
+				up = await fetchImpl(url, { ...init, signal });
+			} catch (e) {
+				if (signal.aborted || attempt >= 2) throw new HttpError(502, `could not reach ${name}: ${e.cause?.code ?? e.message}`);
+				await sleep(1000 * 3 ** attempt, signal);
+				continue;
+			}
+			if (!RETRY_STATUS.has(up.status) || attempt >= 2) return { up, retries: attempt };
+			const after = Number(up.headers.get("retry-after"));
+			await up.body?.cancel().catch(() => {});
+			await sleep(Number.isFinite(after) && after > 0 ? Math.min(after, 10) * 1000 : 1000 * 3 ** attempt, signal);
+		}
+	}
+
+	/** api "openai": /v1/chat/completions; "anthropic": /anthropic/v1/messages. Both stream the model's answer back as is. */
+	async function chat(req, res, user, api) {
 		const payload = JSON.parse((await readBody(req)).toString("utf8"));
 		const ref = payload.ferry;
 		delete payload.ferry;
@@ -120,28 +173,34 @@ export function createApp(cfg, deps = {}) {
 			: payload.model === "auto" || !payload.model ? cfg.defaultModel : payload.model;
 		const m = cfg.models.get(wanted);
 		if (!m) throw new HttpError(404, `model "${payload.model}" is not offered by this server`);
+		if (m.api !== api) throw new HttpError(400, `model "${wanted}" speaks the ${m.api} API, not ${api}`);
 		const p = cfg.providers[m.provider];
 		if (!p.apiKey) throw new HttpError(503, `no API key for provider "${p.name}" on the server (${p.keyEnv ?? "apiKey"})`);
 		payload.model = m.model;
 
+		let url;
+		let headers;
+		if (api === "anthropic") {
+			restoreCacheMarks(payload.messages ?? [], ref?.cache ?? []);
+			if (payload.messages?.[0]?.role === "__system__") payload.system = payload.messages.shift().content;
+			url = /\/v1$/.test(p.baseUrl) ? `${p.baseUrl}/messages` : `${p.baseUrl}/v1/messages`;
+			headers = { "content-type": "application/json", "x-api-key": p.apiKey,
+				"anthropic-version": req.headers["anthropic-version"] ?? "2023-06-01",
+				...(req.headers["anthropic-beta"] ? { "anthropic-beta": req.headers["anthropic-beta"] } : {}) };
+		} else {
+			url = `${p.baseUrl}/chat/completions`;
+			headers = { "content-type": "application/json", authorization: `Bearer ${p.apiKey}` };
+		}
+
 		const stop = new AbortController();
 		res.on("close", () => { if (!res.writableFinished) stop.abort(); }); // the client went away: stop the model too
-		let up;
-		try {
-			up = await fetchImpl(`${p.baseUrl}/chat/completions`, {
-				method: "POST",
-				headers: { "content-type": "application/json", authorization: `Bearer ${p.apiKey}` },
-				body: JSON.stringify(payload),
-				signal: stop.signal,
-			});
-		} catch (e) {
-			throw new HttpError(502, `could not reach ${p.name} (${p.baseUrl}): ${e.cause?.code ?? e.message}`);
-		}
+		const { up, retries } = await upstream(url, { method: "POST", headers, body: JSON.stringify(payload) }, stop.signal,
+			`${p.name} (${p.baseUrl})`);
 		res.writeHead(up.status, { "content-type": up.headers.get("content-type") ?? "application/json",
 			"cache-control": "no-cache", "x-accel-buffering": "no" });
 		if (up.body) for await (const chunk of up.body) res.write(chunk);
 		res.end();
-		return { model: m.id, upstream: up.status, messages: payload.messages?.length ?? 0 };
+		return { model: m.id, upstream: up.status, messages: payload.messages?.length ?? 0, ...(retries ? { retries } : {}) };
 	}
 
 	async function handle(req, res) {
@@ -165,7 +224,8 @@ export function createApp(cfg, deps = {}) {
 			return send(res, 200, { ok: true });
 		}
 		if (path === "/v1/ferry/commit") return send(res, 200, await commit(req, user, url));
-		if (path === "/v1/chat/completions") return chat(req, res, user);
+		if (path === "/v1/chat/completions") return chat(req, res, user, "openai");
+		if (path === "/anthropic/v1/messages") return chat(req, res, user, "anthropic");
 		if (path === "/v1/tools/search" || path === "/v1/tools/fetch") return tools(req, res, path.slice(10));
 		throw new HttpError(404, "not found");
 	}

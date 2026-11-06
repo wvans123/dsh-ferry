@@ -14,13 +14,34 @@ DEEPSEEK_API_KEY=sk-... DSH_FERRY_TOKEN=<令牌> npx -y github:wvans123/dsh-ferr
 
 默认监听 `127.0.0.1:8790`，给出 DeepSeek V4.1 Flash、DeepSeek V4 Pro，外加 `auto`（默认指向 Flash）。放在家里的电脑上，用 Cloudflare Tunnel 之类开到外网，工作电脑连那个地址。只用 Node 自带的模块，不装别的依赖。
 
-要多个用户、换默认模型、指定摘要模型、加别的兼容 OpenAI 接口的服务商，写一个 `dsh-ferry-server.json`（`serve --config <文件>`），格式见 `server/config.js` 开头的注释。
+要多个用户、换默认模型、指定摘要模型、接别家的模型，写一个 `dsh-ferry-server.json`（`serve --config <文件>`），格式见 `server/config.js` 开头的注释。
+
+接别家的模型：
+
+- 兼容 OpenAI 接口的（Kimi、GLM、通义等）：服务商写地址和 Key，模型写一行 `catalog`，指向 pi-ai 模型目录里的条目，比如 `"catalog": "moonshotai/kimi-k2.6"`。上下文多大、能不能看图、思考档位、这家接口的特殊要求，插件都从目录里取，不用自己填。
+- Claude 等 Anthropic 接口的：服务商写 `"api": "anthropic"`（名字叫 `anthropic` 的不用写地址），模型同样写 `catalog`，比如 `"anthropic/claude-haiku-4-5"`。DeepSeek 自己的 Anthropic 兼容接口也能这样接。
+
+```json
+{
+  "providers": {
+    "deepseek": {},
+    "kimi": { "baseUrl": "https://api.moonshot.cn/v1", "apiKeyEnv": "MOONSHOT_API_KEY" },
+    "anthropic": {}
+  },
+  "models": [
+    { "id": "deepseek-flash" }, { "id": "deepseek-v4-pro" },
+    { "id": "kimi", "provider": "kimi", "model": "kimi-k2.6", "catalog": "moonshotai/kimi-k2.6" },
+    { "id": "claude", "provider": "anthropic", "model": "claude-haiku-4-5", "catalog": "anthropic/claude-haiku-4-5" }
+  ]
+}
+```
 
 对话放在内存里。服务端重启后，插件发现对不上会自动重传一遍，不用管。日志只记路径、大小、状态和用时，不记对话内容。
 
 自带服务端为 DSH 多做的几件事：
 
-- DeepSeek 的思考档位在 DSH 里能选（关、低、高、最高，Pro 没有低档），上一轮的思考内容按 DeepSeek 的要求带回去。
+- DeepSeek 的思考档位在 DSH 里能选（关、低、高、最高，Pro 没有低档），不选时默认"高"，和 DSH 直连 DeepSeek 一样；上一轮的思考内容按 DeepSeek 的要求带回去。模型配置里的 `defaultEffort` 可以改默认档位。
+- DeepSeek 忙（429、503 等）时，服务端在开始回复前自动等一下再问，最多两次，DSH 那边只是慢一点，不会报错。
 - 上传先压缩再切块。普通文字一般压到几分之一，300 KB 的对话在 100 KB 的网关下一次就过。
 - DeepSeek 报的缓存命中原样传给 DSH，DSH 的用量里能看到 `cacheReadTokens`。
 - DSH 的网页搜索（`web_search`）也经服务端：服务端用自己的 Key 调 DeepSeek 搜索 API，工作电脑上不用放 DeepSeek 的 Key，只把搜索词发给服务端。读网页默认还在本机（内网页面也能读）；想让公网页面由服务端读，在 DSH 的网页设置里把抓取选成 "Ferry server"（`ferry-fetch`）。
