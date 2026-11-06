@@ -59,7 +59,7 @@ dsh plugin --profile <profile> add github:wvans123/dsh-ferry
   disabled: false
 ```
 
-网页搜索同样只走服务端：插件把 DSH 的搜索换成 `ferry-search`，并关掉 DSH 自带的两个 DeepSeek 搜索插件（它们会用本机的 Key 直连 DeepSeek）。服务端不支持搜索时（比如原来的 Ferry 服务端），DSH 就不提供 `web_search`。
+网页搜索同样只走服务端：插件把 DSH 的搜索换成 `ferry-search`，并关掉 DSH 自带的两个 DeepSeek 搜索插件（它们会用本机的 Key 直连 DeepSeek）。自带服务端用 DeepSeek 搜索 API；原来的 Ferry 服务端用它管理页里设的搜索引擎。服务端没有搜索时，DSH 就不提供 `web_search`。
 
 管不到的是插件自己直接发的网络请求（不走 DSH 的模型接口），比如看图插件把图片发到自己的云端。这类插件别装，见 [docs/PLUGINS.md](docs/PLUGINS.md)。
 

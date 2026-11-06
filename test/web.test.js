@@ -54,6 +54,26 @@ test("web_search goes through the server, which adds its own DeepSeek key", asyn
 	assert.equal(ds.asked[1].path, "/fetch");
 });
 
+test("the Ferry server's own search and page reading are used when that is what it offers", async () => {
+	const asked = [];
+	const url = await listen(createServer(async (req, res) => {
+		const chunks = [];
+		for await (const c of req) chunks.push(c);
+		asked.push({ path: req.url, body: JSON.parse(Buffer.concat(chunks).toString()) });
+		res.writeHead(200, { "content-type": "application/json" });
+		res.end(JSON.stringify(req.url === "/v1/ferry/search"
+			? { engine: "deepseek", results: [{ title: "TS 38.331", url: "https://www.3gpp.org/38331", snippet: "RRC", date: "" }] }
+			: { url: "https://www.3gpp.org/38331", title: "TS 38.331", chars: 9, via: "direct", text: "RRC text.", next_offset: null }));
+	}));
+	const web = webProviders({ server: url, token: TOKEN, features: ["refs", "search", "extract", "read"] });
+	assert.equal(web.search.available(), true);
+	assert.deepEqual((await web.search.search({ query: "38.331", maxResults: 3 })).sources,
+		[{ url: "https://www.3gpp.org/38331", title: "TS 38.331", snippet: "RRC" }]);
+	assert.deepEqual(asked[0], { path: "/v1/ferry/search", body: { query: "38.331", count: 3 } });
+	const page = await web.fetch.fetch({ url: "https://www.3gpp.org/38331" });
+	assert.deepEqual([page.body.content, page.truncated, asked[1].path], ["RRC text.", false, "/v1/ferry/read"]);
+});
+
 test("the server says whether it can search; the provider is not offered when it cannot", async () => {
 	const withKey = await server({ DEEPSEEK_API_KEY: "sk-server-key" });
 	const without = await server({});
