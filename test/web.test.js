@@ -33,7 +33,7 @@ async function fakeTools() {
 }
 
 async function server(env, tools) {
-	const cfg = loadConfig({ env: { DSH_FERRY_TOKEN: TOKEN, ...env } });
+	const cfg = loadConfig({ env: { DSH_FERRY_DATA: "", DSH_FERRY_TOKEN: TOKEN, ...env } });
 	if (tools) cfg.providers.deepseek.toolsBaseUrl = tools;
 	return listen(createApp(cfg, { log: () => {} }).server);
 }

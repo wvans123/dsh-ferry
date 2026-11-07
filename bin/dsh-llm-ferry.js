@@ -10,7 +10,8 @@ import { probeLimit } from "../lib/probe.js";
 
 const USAGE = "usage: dsh-llm-ferry doctor [--profile <name>] [--workspace <dir>]... [--upload] [--server <url>] [--token <token>]\n" +
 	"       dsh-llm-ferry probe [--save] [--server <url>] [--token <token>]\n" +
-	"       dsh-llm-ferry serve [--config <file>] [--port <n>] [--host <addr>]";
+	"       dsh-llm-ferry serve [--config <file>] [--port <n>] [--host <addr>]\n" +
+	"       dsh-llm-ferry stats [--config <file>] [--days <n>]        tokens, cache hits and cost of the server's model calls";
 const args = process.argv.slice(2);
 const flag = (name) => {
 	const i = args.indexOf(name);
@@ -18,6 +19,7 @@ const flag = (name) => {
 };
 
 if (args[0] === "serve") await serve();
+else if (args[0] === "stats") await stats();
 else if (args[0] === "probe") await probe();
 else if (args[0] === "doctor") await runDoctor();
 else {
@@ -46,10 +48,36 @@ async function serve() {
 			console.error(`  ${id}${id === cfg.defaultModel ? " (auto)" : ""}: ${p.name} ${m.model}${p.apiKey ? "" : `  [no key: set ${p.keyEnv}]`}`);
 		}
 		console.error(`  users: ${cfg.users.map((u) => u.name).join(", ")}`);
+		console.error(cfg.dataDir ? `  data: ${cfg.dataDir} (conversations, usage.jsonl)` : "  data: memory only");
 	});
 	const stop = () => server.close(() => process.exit(0));
 	process.on("SIGINT", stop);
 	process.on("SIGTERM", stop);
+}
+
+async function stats() {
+	const { loadConfig } = await import("../server/config.js");
+	const { formatStats, readUsage, summarize } = await import("../server/usage.js");
+	// only dataDir is needed here; a missing token must not stop the reading
+	const env = { ...process.env, DSH_FERRY_TOKEN: process.env.DSH_FERRY_TOKEN || "0123456789abcdef" };
+	let cfg;
+	try {
+		cfg = loadConfig({ file: flag("--config"), env });
+	} catch (e) {
+		console.error(`dsh-llm-ferry stats: ${e.message}`);
+		process.exit(1);
+	}
+	if (!cfg.usageFile) {
+		console.log("This server keeps no usage (dataDir is false).");
+		process.exit(1);
+	}
+	const days = Number(flag("--days") ?? 30);
+	const records = readUsage(cfg.usageFile, days);
+	if (!records.length) {
+		console.log(`No model calls in the last ${days} days (${cfg.usageFile}).`);
+		return;
+	}
+	console.log(formatStats(summarize(records), days));
 }
 
 async function runDoctor() {

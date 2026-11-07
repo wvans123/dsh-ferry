@@ -20,6 +20,13 @@
     provider: ferry
     model: auto
 
+# Compact earlier. DSH compacts at 0.8 of the context window: about 700K tokens on DeepSeek's 1M window. Users on
+# linux.do agree the model stops following instructions well past about 500K; summarising at half the window keeps
+# it in the range where it works. The other settings keep their defaults.
+- id: compaction-basic
+  config:
+    thresholdRatio: 0.5
+
 # web_search through the server too (DeepSeek Search API with the server's key), when the server offers it; DSH's own
 # DeepSeek search plugins would call DeepSeek from this computer with a key of its own, so they are off. Pages are
 # still read on this computer (intranet pages too); choose ferry-fetch in the web settings to read public pages on

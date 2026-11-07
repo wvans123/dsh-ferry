@@ -50,6 +50,57 @@
 
    返回 `{"ok":true,"server":"dsh-ferry",...}` 就通了。
 
+6. 长期用，让它在后台跑，开机自己起来，挂了自己重启。先把 `npx -y github:wvans123/dsh-ferry` 装成固定命令，免得每次启动去 GitHub 取：`npm install -g github:wvans123/dsh-ferry`，以后用 `dsh-llm-ferry serve`；升级再跑一次这条。
+
+   Mac（launchd）。写 `~/Library/LaunchAgents/dsh-ferry.plist`，把 Key、令牌、路径换成自己的（`which dsh-llm-ferry` 看路径）：
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0"><dict>
+     <key>Label</key><string>dsh-ferry</string>
+     <key>ProgramArguments</key><array>
+       <string>/opt/homebrew/bin/dsh-llm-ferry</string><string>serve</string>
+     </array>
+     <key>EnvironmentVariables</key><dict>
+       <key>DEEPSEEK_API_KEY</key><string>sk-...</string>
+       <key>DSH_FERRY_TOKEN</key><string>你的令牌</string>
+       <key>BARK_URL</key><string>https://api.day.app/你的key</string>
+       <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+     </dict>
+     <key>RunAtLoad</key><true/>
+     <key>KeepAlive</key><true/>
+     <key>StandardOutPath</key><string>/tmp/dsh-ferry.log</string>
+     <key>StandardErrorPath</key><string>/tmp/dsh-ferry.err</string>
+   </dict></plist>
+   ```
+
+   然后 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dsh-ferry.plist`。停：`launchctl bootout gui/$(id -u)/dsh-ferry`。改了 plist 要先 bootout 再 bootstrap。这个文件里有 Key，`chmod 600` 它。Cloudflare Tunnel 自己的服务用 `cloudflared service install`。
+
+   Windows（计划任务）。管理员 PowerShell：
+
+   ```powershell
+   $cmd = (Get-Command dsh-llm-ferry.cmd).Source
+   [Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "sk-...", "User")
+   [Environment]::SetEnvironmentVariable("DSH_FERRY_TOKEN", "你的令牌", "User")
+   $action  = New-ScheduledTaskAction -Execute $cmd -Argument "serve" -WorkingDirectory "$env:USERPROFILE\.dsh-ferry"
+   $trigger = New-ScheduledTaskTrigger -AtLogOn
+   $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit 0
+   Register-ScheduledTask -TaskName dsh-ferry -Action $action -Trigger $trigger -Settings $settings
+   Start-ScheduledTask -TaskName dsh-ferry
+   ```
+
+   日志在任务计划程序里看不到，想留日志就把 `-Argument` 写成 `serve --config D:\ferry\dsh-ferry-server.json` 并用 `cmd /c "... serve >> D:\ferry\dsh-ferry.log 2>&1"` 的形式。
+
+7. 服务端留下的东西都在 `~/.dsh-ferry`（Windows：`%USERPROFILE%\.dsh-ferry`）：`store/` 是工作电脑传上来的对话（重启后 DSH 不用重传），`usage.jsonl` 是每次模型调用的 token、缓存命中和费用。看一眼花了多少：
+
+   ```sh
+   dsh-llm-ferry stats            # 最近 30 天，按天、按模型
+   dsh-llm-ferry stats --days 7
+   ```
+
+   不想落盘，配置里写 `"dataDir": false`，或者环境变量 `DSH_FERRY_DATA=`（空）。换个地方，`"dataDir": "D:\\ferry\\data"`。
+
 ## 二、工作电脑（Windows）
 
 两种装法，任选其一：

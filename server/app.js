@@ -15,6 +15,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { gunzipSync } from "node:zlib";
 import { Conflict, Store } from "./store.js";
+import { appendUsage, costOf, usageTap } from "./usage.js";
 
 export const PROTOCOL = "1";
 const MAX_UNZIPPED = 64 * 1024 * 1024;
@@ -65,7 +66,8 @@ class HttpError extends Error {
 export function createApp(cfg, deps = {}) {
 	const fetchImpl = deps.fetch ?? ((...a) => fetch(...a));
 	const log = deps.log ?? ((line) => process.stdout.write(`${JSON.stringify(line)}\n`));
-	const store = deps.store ?? new Store({ maxBytes: cfg.maxSessionBytes });
+	const store = deps.store ?? new Store({ maxBytes: cfg.maxSessionBytes, dir: cfg.storeDir,
+		onError: (e) => log({ at: new Date().toISOString(), warn: `store: ${e.message}` }) });
 	const tokens = cfg.users.map((u) => ({ name: u.name, hash: digest(u.token) }));
 	const version = deps.version ?? "dev";
 
@@ -114,7 +116,8 @@ export function createApp(cfg, deps = {}) {
 		const list = [describe("auto", cfg.models.get(cfg.defaultModel))];
 		for (const [id, m] of cfg.models) list.push(describe(id, m));
 		// "tools": /v1/tools/search and /fetch answer (a name of its own: the Ferry server's "search" is another API)
-		return { models: list, sessionStore: "memory", features: ["gzip", "reasoning", ...(searcher()?.apiKey ? ["tools"] : [])] };
+		// "inline": a small addition may come inside the model request (ferry.append) instead of a commit of its own
+		return { models: list, sessionStore: "memory", features: ["gzip", "reasoning", "inline", ...(searcher()?.apiKey ? ["tools"] : [])] };
 	}
 
 	/** POST /v1/ferry/notify {title, body, kind}: push to the phone through Bark. Same as the Ferry server's. */
@@ -190,6 +193,8 @@ export function createApp(cfg, deps = {}) {
 		const ref = payload.ferry;
 		delete payload.ferry;
 		if (ref) {
+			// a small addition sent inside this request instead of a commit of its own (feature "inline")
+			if (Array.isArray(ref.append)) store.commit(user, ref.conv, Number(ref.base), ref.base_hash ?? "", ref.append, ref.tools ?? null);
 			const { messages, tools } = store.load(user, ref.conv, ref.count, ref.hash, ref.tools_hash);
 			payload.messages = messages;
 			if (tools) payload.tools = tools;
@@ -224,9 +229,25 @@ export function createApp(cfg, deps = {}) {
 			`${p.name} (${p.baseUrl})`);
 		res.writeHead(up.status, { "content-type": up.headers.get("content-type") ?? "application/json",
 			"cache-control": "no-cache", "x-accel-buffering": "no" });
-		if (up.body) for await (const chunk of up.body) res.write(chunk);
+		const tap = usageTap(api);
+		if (up.body) {
+			for await (const chunk of up.body) {
+				res.write(chunk);
+				if (up.ok) tap.write(chunk);
+			}
+		}
 		res.end();
-		return { model: m.id, upstream: up.status, messages: payload.messages?.length ?? 0, ...(retries ? { retries } : {}) };
+		const usage = tap.usage();
+		const cost = usage ? costOf(usage, m.price) : undefined;
+		if (usage && cfg.usageFile) {
+			try {
+				appendUsage(cfg.usageFile, { at: new Date().toISOString(), user, model: m.id, purpose: ref?.purpose ?? "agent", usage, cost });
+			} catch (e) {
+				log({ at: new Date().toISOString(), warn: `cannot write ${cfg.usageFile}: ${e.message}` });
+			}
+		}
+		return { model: m.id, upstream: up.status, messages: payload.messages?.length ?? 0, ...(retries ? { retries } : {}),
+			...(ref?.append ? { inline: ref.append.length } : {}), ...(usage ? { usage, cost } : {}) };
 	}
 
 	async function handle(req, res) {

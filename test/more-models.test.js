@@ -38,7 +38,7 @@ async function ask(adapter, model, messages, extra = {}) {
 function serverWith(raw, env) {
 	const dir = mkdtempSync(join(tmpdir(), "dsh-ferry-cfg-"));
 	const file = join(dir, "dsh-ferry-server.json");
-	writeFileSync(file, JSON.stringify({ users: [{ name: "a", token: TOKEN }], ...raw }));
+	writeFileSync(file, JSON.stringify({ users: [{ name: "a", token: TOKEN }], dataDir: false, ...raw }));
 	return listen(createApp(loadConfig({ file, env }), { log: () => {} }).server);
 }
 
@@ -46,7 +46,7 @@ test("DeepSeek thinks by default: DSH is told the default level, and an explicit
 	const ds = await startFakeDeepSeek();
 	closers.push(ds.close);
 	const cfg = loadConfig({ raw: { providers: { deepseek: { api: "openai", baseUrl: ds.url } } },
-		env: { DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } }); // Chat Completions: the fake speaks that
+		env: { DSH_FERRY_DATA: "", DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } }); // Chat Completions: the fake speaks that
 	const url = await listen(createApp(cfg, { log: () => {} }).server);
 	const { adapter, refresh } = plugin(url);
 	await refresh();
@@ -66,7 +66,7 @@ test("a busy DeepSeek (503, 429) is asked again before DSH sees anything; a bad 
 	const ds = await startFakeDeepSeek();
 	closers.push(ds.close);
 	const cfg = loadConfig({ raw: { providers: { deepseek: { api: "openai", baseUrl: ds.url } } },
-		env: { DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } }); // Chat Completions: the fake speaks that
+		env: { DSH_FERRY_DATA: "", DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } }); // Chat Completions: the fake speaks that
 	const url = await listen(createApp(cfg, { log: () => {} }).server);
 	const { adapter, refresh } = plugin(url);
 	await refresh();

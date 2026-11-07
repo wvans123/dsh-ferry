@@ -13,9 +13,12 @@
 //                { "id": "claude", "provider": "anthropic", "model": "claude-sonnet-4-5", "catalog": "anthropic/claude-sonnet-4-5" }],
 //     "defaultModel": "deepseek-flash", "summaryModel": "deepseek-flash",
 //     "searchProvider": "deepseek",
-//     "barkUrl": "https://api.day.app/<your key>"
+//     "barkUrl": "https://api.day.app/<your key>",
+//     "dataDir": "~/.dsh-ferry"
 //   }
 // barkUrl (or BARK_URL): where phone notifications go (a long task finished, an approval waiting).
+// dataDir (or DSH_FERRY_DATA; default ~/.dsh-ferry): conversations the plugin has uploaded (store/, so a restart does not
+// make every DSH session upload again) and usage.jsonl (tokens and cost per call, for `dsh-llm-ferry stats`). false: memory only.
 // providers: "api" is "openai" (Chat Completions, the default) or "anthropic" (Messages); "deepseek" and "anthropic" need
 // no baseUrl. DeepSeek's own Anthropic-compatible API: { "baseUrl": "https://api.deepseek.com/anthropic", "api": "anthropic",
 // "apiKeyEnv": "DEEPSEEK_API_KEY" }.
@@ -25,6 +28,8 @@
 // searchProvider: whose Search and Fetch APIs answer DSH's web_search / web_fetch (default: deepseek, when configured;
 // a provider other than deepseek needs a "toolsBaseUrl" speaking the same API).
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 // DeepSeek's models as pi-ai 1.3 describes them (providers/all, "deepseek"). compat and thinkingLevelMap are pi-ai's
 // own vocabulary: the plugin hands them to pi-ai as they are, so DSH asks for thinking the way DeepSeek expects and
@@ -47,7 +52,8 @@ const DEEPSEEK = {
 export function deepseekPreset(id, api) {
 	const d = DEEPSEEK[id];
 	const mid = d.midConvoSystem[api] ? { supportsMidConvoSystemMessages: true } : {};
-	return { provider: "deepseek", model: id, name: d.name, contextWindow: 1_048_576, maxTokens: 384_000, vision: d.vision,
+	// maxTokens as DSH's own DeepSeek adapter sets it (256K): DSH reserves this much of the window before it compacts
+	return { provider: "deepseek", model: id, name: d.name, contextWindow: 1_048_576, maxTokens: 256_000, vision: d.vision,
 		price: d.price, reasoning: true, thinkingLevelMap: d.levels, defaultEffort: "high",
 		compat: api === "anthropic" ? { forceAdaptiveThinking: true, ...mid } : { ...DEEPSEEK_COMPAT, ...mid } };
 }
@@ -102,9 +108,15 @@ export function loadConfig({ file, raw: given, env = process.env } = {}) {
 	if (weak.length) throw new Error(`token missing or shorter than 16 characters for: ${weak.map((u) => u.name).join(", ")}` +
 		" (set DSH_FERRY_TOKEN, or tokens in the config file)");
 
+	// where the server keeps what survives a restart: conversations (store/) and usage.jsonl; false keeps it all in memory
+	const dataDir = raw.dataDir === false || env.DSH_FERRY_DATA === "" ? null
+		: String(raw.dataDir ?? env.DSH_FERRY_DATA ?? join(homedir(), ".dsh-ferry"));
 	return {
 		host: raw.host ?? env.HOST ?? "127.0.0.1",
 		port: Number(raw.port ?? env.PORT ?? 8790),
+		dataDir,
+		storeDir: dataDir ? join(dataDir, "store") : null,
+		usageFile: dataDir ? join(dataDir, "usage.jsonl") : null,
 		maxBodyBytes: raw.maxBodyBytes ?? 1_000_000,
 		maxSessionBytes: raw.maxSessionBytes ?? 512 * 1024 * 1024,
 		providers,

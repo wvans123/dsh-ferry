@@ -46,7 +46,10 @@ DEEPSEEK_API_KEY=sk-... DSH_FERRY_TOKEN=<令牌> npx -y github:wvans123/dsh-ferr
 - DeepSeek 的思考档位在 DSH 里能选（关、低、高、最高，Pro 没有低档），不选时默认"高"，和 DSH 直连 DeepSeek 一样。模型配置里的 `defaultEffort` 可以改默认档位。
 - DeepSeek 忙（429、503 等）时，服务端在开始回复前自动等一下再问，最多两次，DSH 那边只是慢一点，不会报错。
 - 上传先压缩再切块。普通文字一般压到几分之一，300 KB 的对话在 100 KB 的网关下一次就过。
-- DeepSeek 报的缓存命中原样传给 DSH，DSH 的用量里能看到 `cacheReadTokens`。
+- 一轮只多了一条工具结果这种小增量，直接放在模型请求里一起发，不单独上传：每一步少一次经过公司代理和隧道的往返。大的增量照旧先传后发。
+- DeepSeek 报的缓存命中原样传给 DSH，DSH 的用量里能看到 `cacheReadTokens`。服务端自己也记一份（`~/.dsh-ferry/usage.jsonl`），`dsh-llm-ferry stats` 按天、按模型看 token、缓存命中率和费用。
+- 服务端把传上来的对话存在 `~/.dsh-ferry/store/`，重启后 DSH 接着用，不用重传。`"dataDir": false` 改成只放内存。
+- DSH 默认用掉 80% 上下文才压缩，在 DeepSeek 的 1M 窗口上是 70 万 token 左右；用的人反映 50 万以后模型就不太听话了。插件把阈值改到 50%。
 - 手机通知（Bark）：任务跑了一分钟以上、结束时（完成、出错或被停止），或者有操作等你批准一分钟没人点，推一条到手机。服务端设 `BARK_URL=https://api.day.app/<你的 key>`（或配置里的 `barkUrl`）就开了；工作电脑只把通知交给服务端，不直连 Bark。插件设置里 `notifyAfterSeconds`、`approvalNotifySeconds` 改时长，设 0 关掉。原来的 Ferry 服务端在管理页设了 Bark 也能用。
 - DSH 的网页搜索（`web_search`）也经服务端：服务端用自己的 Key 调 DeepSeek 搜索 API，工作电脑上不用放 DeepSeek 的 Key，只把搜索词发给服务端。读网页默认还在本机（内网页面也能读）；想让公网页面由服务端读，在 DSH 的网页设置里把抓取选成 "Ferry server"（`ferry-fetch`）。
 

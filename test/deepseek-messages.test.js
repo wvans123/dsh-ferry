@@ -63,7 +63,7 @@ async function fakeDeepSeekMessages() {
 
 async function setup() {
 	const ds = await fakeDeepSeekMessages();
-	const cfg = loadConfig({ raw: { providers: { deepseek: { baseUrl: ds.url } } }, env: { DEEPSEEK_API_KEY: KEY, DSH_FERRY_TOKEN: TOKEN } });
+	const cfg = loadConfig({ raw: { providers: { deepseek: { baseUrl: ds.url } } }, env: { DSH_FERRY_DATA: "", DEEPSEEK_API_KEY: KEY, DSH_FERRY_TOKEN: TOKEN } });
 	cfg.providers.deepseek.dialect = "deepseek"; // the fake's address is not api.deepseek.com
 	const url = await listen(createApp(cfg, { log: () => {} }).server);
 	const ctx = { llm: { registerAdapter: () => ({}) }, logger: { info: () => {}, warn: () => {} }, get: () => undefined,
@@ -123,11 +123,11 @@ test("off means off: thinking disabled, no effort", async () => {
 });
 
 test("api: openai on the deepseek provider switches back to Chat Completions", () => {
-	const cfg = loadConfig({ raw: { providers: { deepseek: { api: "openai" } } }, env: { DEEPSEEK_API_KEY: KEY, DSH_FERRY_TOKEN: TOKEN } });
+	const cfg = loadConfig({ raw: { providers: { deepseek: { api: "openai" } } }, env: { DSH_FERRY_DATA: "", DEEPSEEK_API_KEY: KEY, DSH_FERRY_TOKEN: TOKEN } });
 	assert.equal(cfg.providers.deepseek.baseUrl, "https://api.deepseek.com");
 	assert.equal(cfg.models.get("deepseek-flash").api, "openai");
 	assert.equal(cfg.models.get("deepseek-flash").compat.thinkingFormat, "deepseek");
-	const dflt = loadConfig({ env: { DEEPSEEK_API_KEY: KEY, DSH_FERRY_TOKEN: TOKEN } });
+	const dflt = loadConfig({ env: { DSH_FERRY_DATA: "", DEEPSEEK_API_KEY: KEY, DSH_FERRY_TOKEN: TOKEN } });
 	assert.equal(dflt.providers.deepseek.baseUrl, "https://api.deepseek.com/anthropic");
 	assert.equal(dflt.providers.deepseek.dialect, "deepseek");
 });

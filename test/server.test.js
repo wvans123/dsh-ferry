@@ -27,7 +27,7 @@ async function setup(opts = {}) {
 	const ds = await startFakeDeepSeek();
 	closers.push(ds.close);
 	const cfg = loadConfig({ raw: { providers: { deepseek: { api: "openai", baseUrl: ds.url } } },
-		env: { DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } }); // Chat Completions: the fake speaks that
+		env: { DSH_FERRY_DATA: "", DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN } }); // Chat Completions: the fake speaks that
 	Object.assign(cfg, opts.cfg ?? {});
 	const lines = [];
 	const { server, store } = createApp(cfg, { log: (l) => lines.push(l) });
@@ -88,7 +88,7 @@ test("health needs no token; everything else does, and the protocol version is c
 test("the model list: auto plus DeepSeek's models with their thinking levels, and what the server supports", async () => {
 	const { url } = await setup();
 	const body = await (await api(url, "/v1/ferry/models")).json();
-	assert.deepEqual(body.features, ["gzip", "reasoning", "tools"]);
+	assert.deepEqual(body.features, ["gzip", "reasoning", "inline", "tools"]);
 	assert.deepEqual(body.models.map((m) => m.id), ["auto", "deepseek-flash", "deepseek-v4-pro"]);
 	const flash = body.models[1];
 	assert.equal(flash.reasoning, true);
@@ -202,7 +202,7 @@ test("another OpenAI-compatible provider from the config file: its address, key 
 		providers: { other: { baseUrl: `${other.url}/v1`, apiKeyEnv: "OTHER_KEY" } },
 		models: [{ id: "big", provider: "other", model: "big-model-1", contextWindow: 200000, maxTokens: 16000, name: "Big One" }],
 	}));
-	const cfg = loadConfig({ file, env: { OTHER_KEY: "sk-other-provider" } });
+	const cfg = loadConfig({ file, env: { DSH_FERRY_DATA: "", OTHER_KEY: "sk-other-provider" } });
 	assert.equal(cfg.searchProvider, null);
 	const { server } = createApp(cfg, { log: () => {} });
 	await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -229,7 +229,7 @@ test("DeepSeek turning the server's key down reaches DSH as an error", async () 
 
 test("a server without a DeepSeek key says so instead of calling out", async () => {
 	let called = 0;
-	const { server } = createApp(loadConfig({ env: { DSH_FERRY_TOKEN: TOKEN } }), { log: () => {}, fetch: async () => { called++; } });
+	const { server } = createApp(loadConfig({ env: { DSH_FERRY_DATA: "", DSH_FERRY_TOKEN: TOKEN } }), { log: () => {}, fetch: async () => { called++; } });
 	await new Promise((r) => server.listen(0, "127.0.0.1", r));
 	closers.push(() => new Promise((r) => server.close(r)));
 	const url = `http://127.0.0.1:${server.address().port}`;
@@ -239,4 +239,55 @@ test("a server without a DeepSeek key says so instead of calling out", async () 
 	const out = await ask(adapter, [createSystemMessage("s"), user("hi")]);
 	assert.match(JSON.stringify(out.at(-1)), /no API key for provider .*deepseek.*DEEPSEEK_API_KEY/);
 	assert.equal(called, 0);
+});
+
+test("a small turn rides inside the model request: no commit of its own; the server's copy survives a restart", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "dsh-ferry-data-"));
+	const { url, ds, lines, store } = await setup({ cfg: { storeDir: join(dir, "store"), usageFile: join(dir, "usage.jsonl") } });
+	store.dir = join(dir, "store"); // setup made the store before the cfg change; the server would have read it from cfg
+	const { adapter, refresh } = plugin(url);
+	await refresh();
+	ds.state.replies.push({ tool: { name: "read", args: { path: "a.txt" } }, cacheHit: 0 }, { text: "done", cacheHit: 900 });
+	const history = [createSystemMessage("s"), user("read a.txt")];
+	const first = await ask(adapter, history);
+	const call = first.filter((c) => c.type === "block-end").map((c) => c.block).find((b) => b.type === "tool-call");
+	history.push(createAssistantMessage({ content: [call] }), createToolResultMessage({ toolCallId: call.id, content: [{ type: "text", text: "hello" }] }));
+	// as if the server had been restarted: memory empty, files still there
+	store.sessions.clear();
+	store.tools.clear();
+	const second = await ask(adapter, history);
+	assert.equal(second.at(-1).reason.kind, "stop");
+	const paths = lines.map((l) => l.path);
+	assert.ok(!paths.includes("/v1/ferry/commit"), JSON.stringify(paths));
+	const chats = lines.filter((l) => l.path === "/v1/chat/completions");
+	const total = ds.state.requests[1].body.messages.length; // system, user, assistant (call), tool result, as pi-ai lays them out
+	assert.ok(total >= 4, String(total));
+	assert.deepEqual(chats.map((c) => [c.status, c.inline, c.messages]), [[200, 2, 2], [200, total - 2, total]]);
+	assert.deepEqual(chats[1].usage, { input: 100, cache_read: 900, cache_write: 0, output: 50 });
+	assert.ok(chats[1].cost > 0 && chats[1].cost < chats[0].cost, JSON.stringify(chats.map((c) => c.cost)));
+	const written = (await import("node:fs")).readFileSync(join(dir, "usage.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+	assert.deepEqual(written.map((w) => w.usage.cache_read), [0, 900]);
+	assert.equal(written[0].model, "deepseek-flash");
+});
+
+test("with memory only, a lost conversation makes the plugin send it in full once, and the turn still succeeds", async () => {
+	const { url, ds, lines, store } = await setup();
+	const { adapter, refresh } = plugin(url);
+	await refresh();
+	const history = [createSystemMessage("s"), user("hi")];
+	await ask(adapter, history);
+	store.sessions.clear();
+	history.push(createAssistantMessage({ content: [{ type: "text", text: "hello" }] }), user("again"));
+	const out = await ask(adapter, history);
+	assert.equal(out.at(-1).reason.kind, "stop");
+	const chats = lines.filter((l) => l.path === "/v1/chat/completions").map((c) => c.status);
+	assert.deepEqual(chats, [200, 409, 200]);
+	assert.equal(ds.state.requests[1].body.messages.length, 4);
+});
+
+test("a request before the model list has arrived (a resumed session) waits for it instead of failing", async () => {
+	const { url } = await setup();
+	const { adapter } = plugin(url); // no refresh() here: the plugin's own first fetch is still on its way
+	const out = await ask(adapter, [createSystemMessage("s"), user("hi")]);
+	assert.equal(out.at(-1).reason.kind, "stop");
 });

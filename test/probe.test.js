@@ -37,7 +37,7 @@ test("dsh-llm-ferry probe --save keeps the size in ~/.ferry/config.json next to 
 	writeFileSync(join(home, "config.json"), JSON.stringify({ server: server.url, token: server.state.token }));
 	const bin = new URL("../bin/dsh-llm-ferry.js", import.meta.url).pathname;
 	const { stdout } = await promisify(execFile)(process.execPath, [bin, "probe", "--save"],
-		{ env: { ...process.env, FERRY_HOME: home, FERRY_SERVER: "", FERRY_TOKEN: "" } });
+		{ env: { DSH_FERRY_DATA: "", ...process.env, FERRY_HOME: home, FERRY_SERVER: "", FERRY_TOKEN: "" } });
 	assert.match(stdout, /The limit is about 5\d KB/);
 	const saved = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
 	assert.equal(saved.server, server.url);

@@ -32,7 +32,7 @@ const PATCH = (server, token) => `- id: agent-default-model
 /** A pretend Windows home with DSH's desktop profile, the plugin installed and a patch file. */
 function machine(files, extra = {}) {
 	return {
-		home: "C:\\Users\\me", platform: "win32", env: { DSH_HOME: "/dsh" }, exists: (f) => f in files,
+		home: "C:\\Users\\me", platform: "win32", env: { DSH_FERRY_DATA: "", DSH_HOME: "/dsh" }, exists: (f) => f in files,
 		read: (f) => files[f], ...extra,
 	};
 }
@@ -43,7 +43,7 @@ test("the llm-ferry entry is read from a profile's patch file, and only that ent
 });
 
 test("all good: plugin, server, token, models; Windows: a labelled workspace, a too-broad one, no PowerShell 7", async () => {
-	const url = await listen(createApp(loadConfig({ env: { DSH_FERRY_TOKEN: TOKEN, DEEPSEEK_API_KEY: "sk-x" } }), { log: () => {} }).server);
+	const url = await listen(createApp(loadConfig({ env: { DSH_FERRY_DATA: "", DSH_FERRY_TOKEN: TOKEN, DEEPSEEK_API_KEY: "sk-x" } }), { log: () => {} }).server);
 	const files = {
 		"/dsh/profiles/desktop": true,
 		"/dsh/profiles/desktop/node_modules/dsh-llm-ferry/package.json": JSON.stringify({ version: "9.9.9" }),
@@ -72,7 +72,7 @@ test("all good: plugin, server, token, models; Windows: a labelled workspace, a 
 });
 
 test("a wrong token, and a gateway page instead of the server, are told apart", async () => {
-	const url = await listen(createApp(loadConfig({ env: { DSH_FERRY_TOKEN: TOKEN, DEEPSEEK_API_KEY: "sk-x" } }), { log: () => {} }).server);
+	const url = await listen(createApp(loadConfig({ env: { DSH_FERRY_DATA: "", DSH_FERRY_TOKEN: TOKEN, DEEPSEEK_API_KEY: "sk-x" } }), { log: () => {} }).server);
 	const bad = await doctor({ server: url, token: "wrong-token-0123456789" }, machine({}, { platform: "darwin" }));
 	assert.equal(bad.failed, true);
 	assert.match(bad.lines.map((l) => l.text).join("\n"), /turned the token down/);

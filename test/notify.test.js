@@ -62,14 +62,14 @@ test("a long task that ends, and an approval left waiting, reach the phone; shor
 
 test("the server pushes through Bark; approvals are time-sensitive; no Bark address is said plainly", async () => {
 	const bark = await fakeBark();
-	const url = await listen(createApp(loadConfig({ env: { DSH_FERRY_TOKEN: TOKEN, BARK_URL: bark.url } }), { log: () => {} }).server);
+	const url = await listen(createApp(loadConfig({ env: { DSH_FERRY_DATA: "", DSH_FERRY_TOKEN: TOKEN, BARK_URL: bark.url } }), { log: () => {} }).server);
 	const n = createNotifier({ server: url, token: TOKEN });
 	await n.send("DSH 等你批准", "任务 · bash", "approval");
 	await n.send("DSH 完成了", "任务 · 用时 3 分钟", "done");
 	assert.deepEqual(bark.pushes.map((p) => [p.path, p.body.title, p.body.level, p.body.group]), [
 		["/test-key", "DSH 等你批准", "timeSensitive", "DSH"], ["/test-key", "DSH 完成了", undefined, "DSH"]]);
 
-	const bare = await listen(createApp(loadConfig({ env: { DSH_FERRY_TOKEN: TOKEN } }), { log: () => {} }).server);
+	const bare = await listen(createApp(loadConfig({ env: { DSH_FERRY_DATA: "", DSH_FERRY_TOKEN: TOKEN } }), { log: () => {} }).server);
 	const said = [];
 	const quiet = createNotifier({ server: bare, token: TOKEN }, { say: (t) => said.push(t) });
 	await quiet.send("x", "y", "done");
