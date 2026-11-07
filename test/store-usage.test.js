@@ -109,3 +109,12 @@ test("usage file: appended, read back by age, summed by day and model, shown as 
 	assert.match(text, /deepseek-flash\s+1\s+1000\s+90%/);
 	assert.deepEqual(readUsage(join(file, "..", "missing.jsonl")), []);
 });
+
+test("version note: which side to update, nothing when equal or unknown", async () => {
+	const { versionNote } = await import("../lib/models.js");
+	assert.match(versionNote("0.11.0", "0.12.0"), /update the plugin/);
+	assert.match(versionNote("0.12.0", "0.11.3"), /update the server/);
+	assert.equal(versionNote("0.12.0", "0.12.0"), null);
+	assert.equal(versionNote("0.12.0", null), null);
+	assert.equal(versionNote("0.12.0", "dev"), null);
+});

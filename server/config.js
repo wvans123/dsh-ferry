@@ -8,15 +8,20 @@
 //     "providers": { "deepseek": {},
 //                    "kimi": { "baseUrl": "https://api.moonshot.cn/v1", "apiKeyEnv": "MOONSHOT_API_KEY" },
 //                    "anthropic": {} },
-//     "models": [{ "id": "deepseek-flash" }, { "id": "deepseek-v4-pro", "defaultEffort": "max" },
+//     "models": [{ "id": "deepseek-flash", "fallback": "deepseek-v4-pro" }, { "id": "deepseek-v4-pro", "defaultEffort": "max" },
 //                { "id": "kimi", "provider": "kimi", "model": "kimi-k2", "catalog": "moonshotai/kimi-k2" },
 //                { "id": "claude", "provider": "anthropic", "model": "claude-sonnet-4-5", "catalog": "anthropic/claude-sonnet-4-5" }],
 //     "defaultModel": "deepseek-flash", "summaryModel": "deepseek-flash",
 //     "searchProvider": "deepseek",
 //     "barkUrl": "https://api.day.app/<your key>",
-//     "dataDir": "~/.dsh-ferry"
+//     "dataDir": "~/.dsh-ferry",
+//     "dailyBudget": 5
 //   }
 // barkUrl (or BARK_URL): where phone notifications go (a long task finished, an approval waiting).
+// "fallback" on a model: another model (same API) to ask when this one keeps answering busy or failing (429, 5xx) or
+// has no key; tried once, before anything has been sent back to DSH.
+// dailyBudget (or DSH_FERRY_DAILY_BUDGET): when a day's cost (in the prices' unit) passes it, one Bark message and a
+// log line; calls go on. 0 or missing: no budget.
 // dataDir (or DSH_FERRY_DATA; default ~/.dsh-ferry): conversations the plugin has uploaded (store/, so a restart does not
 // make every DSH session upload again) and usage.jsonl (tokens and cost per call, for `dsh-llm-ferry stats`). false: memory only.
 // providers: "api" is "openai" (Chat Completions, the default) or "anthropic" (Messages); "deepseek" and "anthropic" need
@@ -98,8 +103,16 @@ export function loadConfig({ file, raw: given, env = process.env } = {}) {
 		const plain = def.catalog ? {} : { contextWindow: 128_000, maxTokens: 8192, vision: false };
 		models.set(def.id, { ...plain, model: def.id, ...def, api: providers[def.provider].api });
 	}
+	for (const [id, m] of models) {
+		if (m.fallback === undefined) continue;
+		const f = models.get(m.fallback);
+		if (!f || m.fallback === id) throw new Error(`model "${id}": fallback "${m.fallback}" is not another one of the models`);
+		if (f.api !== m.api) throw new Error(`model "${id}": fallback "${m.fallback}" speaks the ${f.api} API, not ${m.api}`);
+	}
 	const defaultModel = raw.defaultModel ?? models.keys().next().value;
 	if (!models.has(defaultModel)) throw new Error(`defaultModel "${defaultModel}" is not one of the models`);
+	const dailyBudget = Number(raw.dailyBudget ?? env.DSH_FERRY_DAILY_BUDGET ?? 0);
+	if (!Number.isFinite(dailyBudget) || dailyBudget < 0) throw new Error("dailyBudget must be a number of 0 or more");
 	if (raw.summaryModel && !models.has(raw.summaryModel)) throw new Error(`summaryModel "${raw.summaryModel}" is not one of the models`);
 
 	const users = (raw.users ?? [{ name: "default", tokenEnv: env.DSH_FERRY_TOKEN ? "DSH_FERRY_TOKEN" : "FERRY_TOKEN" }])
@@ -126,6 +139,7 @@ export function loadConfig({ file, raw: given, env = process.env } = {}) {
 		searchProvider,
 		// Bark (iPhone) push address, https://api.day.app/<key>: phone notifications the plugin asks for
 		barkUrl: String(raw.barkUrl ?? env.BARK_URL ?? env.FERRY_BARK_URL ?? "").replace(/\/+$/, ""),
+		dailyBudget,
 		users,
 	};
 }

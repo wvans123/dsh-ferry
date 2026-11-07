@@ -99,6 +99,8 @@
    dsh-llm-ferry stats --days 7
    ```
 
+   每天花费超过多少就让 Bark 提醒一次：配置里写 `"dailyBudget": 5`（单位和模型价格一致）。
+
    不想落盘，配置里写 `"dataDir": false`，或者环境变量 `DSH_FERRY_DATA=`（空）。换个地方，`"dataDir": "D:\\ferry\\data"`。
 
 ## 二、工作电脑（Windows）

@@ -15,7 +15,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { gunzipSync } from "node:zlib";
 import { Conflict, Store } from "./store.js";
-import { appendUsage, costOf, usageTap } from "./usage.js";
+import { appendUsage, costOf, readUsage, usageTap } from "./usage.js";
 
 export const PROTOCOL = "1";
 const MAX_UNZIPPED = 64 * 1024 * 1024;
@@ -117,22 +117,46 @@ export function createApp(cfg, deps = {}) {
 		for (const [id, m] of cfg.models) list.push(describe(id, m));
 		// "tools": /v1/tools/search and /fetch answer (a name of its own: the Ferry server's "search" is another API)
 		// "inline": a small addition may come inside the model request (ferry.append) instead of a commit of its own
-		return { models: list, sessionStore: "memory", features: ["gzip", "reasoning", "inline", ...(searcher()?.apiKey ? ["tools"] : [])] };
+		return { models: list, sessionStore: "memory", version, features: ["gzip", "reasoning", "inline", ...(searcher()?.apiKey ? ["tools"] : [])] };
+	}
+
+	/** One Bark push. kind "approval" is time-sensitive. */
+	async function bark(title, body, kind) {
+		if (!cfg.barkUrl) return { ok: false, error: "no Bark address on the server (barkUrl or BARK_URL)" };
+		const payload = { title: String(title ?? "DSH").slice(0, 80), body: String(body ?? "").slice(0, 500), group: "DSH",
+			...(kind === "approval" ? { level: "timeSensitive" } : {}) };
+		try {
+			const r = await fetchImpl(cfg.barkUrl, { method: "POST", headers: { "content-type": "application/json" },
+				body: JSON.stringify(payload), signal: AbortSignal.timeout(15_000) });
+			return r.ok ? { ok: true, kind: kind ?? "" } : { ok: false, error: `Bark answered HTTP ${r.status}` };
+		} catch (e) {
+			return { ok: false, error: `cannot reach Bark: ${e.cause?.code ?? e.message}` };
+		}
 	}
 
 	/** POST /v1/ferry/notify {title, body, kind}: push to the phone through Bark. Same as the Ferry server's. */
 	async function notify(req) {
 		const b = JSON.parse((await readBody(req)).toString("utf8") || "{}");
-		if (!cfg.barkUrl) return { ok: false, error: "no Bark address on the server (barkUrl or BARK_URL)" };
-		const payload = { title: String(b.title ?? "DSH").slice(0, 80), body: String(b.body ?? "").slice(0, 500), group: "DSH",
-			...(b.kind === "approval" ? { level: "timeSensitive" } : {}) };
+		return bark(b.title, b.body, b.kind);
+	}
+
+	// Today's spend, for the daily budget: what usage.jsonl already holds for today, plus every call from now on.
+	const today = () => new Date().toISOString().slice(0, 10);
+	const spent = { day: today(), cost: 0, warned: false };
+	if (cfg.usageFile) {
 		try {
-			const r = await fetchImpl(cfg.barkUrl, { method: "POST", headers: { "content-type": "application/json" },
-				body: JSON.stringify(payload), signal: AbortSignal.timeout(15_000) });
-			return r.ok ? { ok: true, kind: b.kind ?? "" } : { ok: false, error: `Bark answered HTTP ${r.status}` };
-		} catch (e) {
-			return { ok: false, error: `cannot reach Bark: ${e.cause?.code ?? e.message}` };
+			for (const r of readUsage(cfg.usageFile, 2)) if (String(r.at).startsWith(spent.day)) spent.cost += r.cost ?? 0;
+		} catch {
+			// no file yet, or unreadable: start from zero
 		}
+	}
+	function spend(cost) {
+		if (spent.day !== today()) Object.assign(spent, { day: today(), cost: 0, warned: false });
+		spent.cost += cost;
+		if (!cfg.dailyBudget || spent.cost < cfg.dailyBudget || spent.warned) return;
+		spent.warned = true;
+		log({ at: new Date().toISOString(), warn: `daily budget ${cfg.dailyBudget} passed: ${spent.cost.toFixed(4)} spent today` });
+		void bark("DSH 今天的花费超过预算", `已花 ${spent.cost.toFixed(2)}，预算 ${cfg.dailyBudget}。调用照常，只是提醒。`, "budget");
 	}
 
 	async function tools(req, res, op) {
@@ -201,32 +225,58 @@ export function createApp(cfg, deps = {}) {
 		}
 		const wanted = ref?.purpose === "summary" && cfg.summaryModel ? cfg.summaryModel
 			: payload.model === "auto" || !payload.model ? cfg.defaultModel : payload.model;
-		const m = cfg.models.get(wanted);
-		if (!m) throw new HttpError(404, `model "${payload.model}" is not offered by this server`);
-		if (m.api !== api) throw new HttpError(400, `model "${wanted}" speaks the ${m.api} API, not ${api}`);
-		const p = cfg.providers[m.provider];
-		if (!p.apiKey) throw new HttpError(503, `no API key for provider "${p.name}" on the server (${p.keyEnv ?? "apiKey"})`);
-		payload.model = m.model;
-
-		let url;
-		let headers;
+		const first = cfg.models.get(wanted);
+		if (!first) throw new HttpError(404, `model "${payload.model}" is not offered by this server`);
+		if (first.api !== api) throw new HttpError(400, `model "${wanted}" speaks the ${first.api} API, not ${api}`);
 		if (api === "anthropic") {
 			restoreCacheMarks(payload.messages ?? [], ref?.cache ?? []);
 			if (payload.messages?.[0]?.role === "__system__") payload.system = payload.messages.shift().content;
-			if (p.dialect === "deepseek") deepseekThinking(payload);
-			url = /\/v1$/.test(p.baseUrl) ? `${p.baseUrl}/messages` : `${p.baseUrl}/v1/messages`;
-			headers = { "content-type": "application/json", "x-api-key": p.apiKey,
-				"anthropic-version": req.headers["anthropic-version"] ?? "2023-06-01",
-				...(req.headers["anthropic-beta"] ? { "anthropic-beta": req.headers["anthropic-beta"] } : {}) };
-		} else {
-			url = `${p.baseUrl}/chat/completions`;
-			headers = { "content-type": "application/json", authorization: `Bearer ${p.apiKey}` };
 		}
 
 		const stop = new AbortController();
 		res.on("close", () => { if (!res.writableFinished) stop.abort(); }); // the client went away: stop the model too
-		const { up, retries } = await upstream(url, { method: "POST", headers, body: JSON.stringify(payload) }, stop.signal,
-			`${p.name} (${p.baseUrl})`);
+		/** Ask one model; null when it has no key. Throws HttpError when it cannot be reached. */
+		const call = async (m) => {
+			const p = cfg.providers[m.provider];
+			if (!p.apiKey) return null;
+			const body = { ...payload, model: m.model };
+			let url;
+			let headers;
+			if (api === "anthropic") {
+				if (p.dialect === "deepseek") deepseekThinking(body);
+				url = /\/v1$/.test(p.baseUrl) ? `${p.baseUrl}/messages` : `${p.baseUrl}/v1/messages`;
+				headers = { "content-type": "application/json", "x-api-key": p.apiKey,
+					"anthropic-version": req.headers["anthropic-version"] ?? "2023-06-01",
+					...(req.headers["anthropic-beta"] ? { "anthropic-beta": req.headers["anthropic-beta"] } : {}) };
+			} else {
+				url = `${p.baseUrl}/chat/completions`;
+				headers = { "content-type": "application/json", authorization: `Bearer ${p.apiKey}` };
+			}
+			return upstream(url, { method: "POST", headers, body: JSON.stringify(body) }, stop.signal, `${p.name} (${p.baseUrl})`);
+		};
+
+		// The model's fallback (same API) takes over when it has no key here, cannot be reached, or stays busy or broken
+		// after the retries: DSH gets an answer from the other model instead of an error.
+		let m = first;
+		let got = null;
+		try {
+			got = await call(first);
+		} catch (e) {
+			if (!first.fallback || stop.signal.aborted) throw e;
+		}
+		let fallback;
+		if (first.fallback && (!got || RETRY_STATUS.has(got.up.status))) {
+			await got?.up.body?.cancel().catch(() => {});
+			m = cfg.models.get(first.fallback);
+			fallback = m.id;
+			got = await call(m);
+			if (!got) throw new HttpError(503, `no API key for "${first.id}" nor for its fallback "${m.id}" on the server`);
+		}
+		if (!got) {
+			const p = cfg.providers[first.provider];
+			throw new HttpError(503, `no API key for provider "${p.name}" on the server (${p.keyEnv ?? "apiKey"})`);
+		}
+		const { up, retries } = got;
 		res.writeHead(up.status, { "content-type": up.headers.get("content-type") ?? "application/json",
 			"cache-control": "no-cache", "x-accel-buffering": "no" });
 		const tap = usageTap(api);
@@ -239,15 +289,18 @@ export function createApp(cfg, deps = {}) {
 		res.end();
 		const usage = tap.usage();
 		const cost = usage ? costOf(usage, m.price) : undefined;
-		if (usage && cfg.usageFile) {
-			try {
-				appendUsage(cfg.usageFile, { at: new Date().toISOString(), user, model: m.id, purpose: ref?.purpose ?? "agent", usage, cost });
-			} catch (e) {
-				log({ at: new Date().toISOString(), warn: `cannot write ${cfg.usageFile}: ${e.message}` });
+		if (usage) {
+			spend(cost);
+			if (cfg.usageFile) {
+				try {
+					appendUsage(cfg.usageFile, { at: new Date().toISOString(), user, model: m.id, purpose: ref?.purpose ?? "agent", usage, cost });
+				} catch (e) {
+					log({ at: new Date().toISOString(), warn: `cannot write ${cfg.usageFile}: ${e.message}` });
+				}
 			}
 		}
 		return { model: m.id, upstream: up.status, messages: payload.messages?.length ?? 0, ...(retries ? { retries } : {}),
-			...(ref?.append ? { inline: ref.append.length } : {}), ...(usage ? { usage, cost } : {}) };
+			...(fallback ? { fallback } : {}), ...(ref?.append ? { inline: ref.append.length } : {}), ...(usage ? { usage, cost } : {}) };
 	}
 
 	async function handle(req, res) {

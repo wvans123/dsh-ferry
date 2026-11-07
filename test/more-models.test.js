@@ -142,3 +142,66 @@ test("search results: DeepSeek's in-page position (#1#49#1) is taken off the add
 		{ url: "https://example.com/page#section", title: "", snippet: "", date: null }] });
 	assert.deepEqual(sources.map((s) => s.url), ["https://www.etsi.org/x.pdf", "https://example.com/page#section"]);
 });
+
+test("fallback: a model that stays busy, cannot be reached or has no key hands the request to its fallback", async () => {
+	const ds = await startFakeDeepSeek();
+	closers.push(ds.close);
+	const other = await startFakeDeepSeek();
+	closers.push(other.close);
+	other.state.key = "sk-other";
+	const raw = { providers: { deepseek: { api: "openai", baseUrl: ds.url }, other: { baseUrl: other.url, apiKeyEnv: "OTHER_KEY" } },
+		models: [{ id: "deepseek-flash", fallback: "spare" }, { id: "spare", provider: "other", model: "spare-1" }] };
+	const lines = [];
+	const url = await listen(createApp(loadConfig({ raw, env: { DSH_FERRY_DATA: "", DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN, OTHER_KEY: "sk-other" } }),
+		{ log: (l) => lines.push(l) }).server);
+	const { adapter, refresh } = plugin(url);
+	await refresh();
+	// busy three times: the retries run out, the fallback answers
+	ds.state.replies.push({ status: 503, message: "busy" }, { status: 503, message: "busy" }, { status: 503, message: "busy" });
+	other.state.replies.push({ text: "spare here" });
+	const out = await ask(adapter, "deepseek-flash", [createSystemMessage("s"), user("hi")]);
+	assert.equal(out.at(-1).reason.kind, "stop");
+	assert.equal(other.state.requests.at(-1).body.model, "spare-1");
+	assert.equal(lines.at(-1).fallback, "spare");
+	assert.equal(lines.at(-1).model, "spare");
+	// a bad request is the model's answer, not a reason to switch
+	ds.state.replies.push({ status: 400, message: "Invalid request" });
+	const bad = await ask(adapter, "deepseek-flash", [createSystemMessage("s"), user("hi")]);
+	assert.equal(bad.at(-1).reason.kind, "error");
+	assert.equal(other.state.requests.length, 1);
+	// no key for the first: straight to the fallback
+	const noKey = await listen(createApp(loadConfig({ raw, env: { DSH_FERRY_DATA: "", DSH_FERRY_TOKEN: TOKEN, OTHER_KEY: "sk-other" } }), { log: () => {} }).server);
+	const second = plugin(noKey);
+	await second.refresh();
+	other.state.replies.push({ text: "spare again" });
+	assert.equal((await ask(second.adapter, "deepseek-flash", [createSystemMessage("s"), user("hi")])).at(-1).reason.kind, "stop");
+	assert.equal(other.state.requests.length, 2);
+	// the config checks the fallback
+	assert.throws(() => loadConfig({ raw: { models: [{ id: "deepseek-flash", fallback: "nope" }] }, env: { DSH_FERRY_TOKEN: TOKEN } }), /fallback "nope"/);
+});
+
+test("daily budget: one Bark message when today's cost passes it; the model list carries the server's version", async () => {
+	const ds = await startFakeDeepSeek();
+	closers.push(ds.close);
+	const pushes = [];
+	const bark = await listen(createServer(async (req, res) => {
+		const chunks = [];
+		for await (const c of req) chunks.push(c);
+		pushes.push(JSON.parse(Buffer.concat(chunks).toString()));
+		res.writeHead(200, { "content-type": "application/json" });
+		res.end("{}");
+	}));
+	const lines = [];
+	const cfg = loadConfig({ raw: { providers: { deepseek: { api: "openai", baseUrl: ds.url } }, dailyBudget: 0.0001 },
+		env: { DSH_FERRY_DATA: "", DEEPSEEK_API_KEY: ds.state.key, DSH_FERRY_TOKEN: TOKEN, BARK_URL: `${bark}/k` } });
+	const url = await listen(createApp(cfg, { log: (l) => lines.push(l), version: "7.7.7" }).server);
+	const list = await (await fetch(`${url}/v1/ferry/models`, { headers: { authorization: `Bearer ${TOKEN}` } })).json();
+	assert.equal(list.version, "7.7.7");
+	const { adapter, refresh } = plugin(url);
+	await refresh();
+	for (let i = 0; i < 3; i++) await ask(adapter, "deepseek-flash", [createSystemMessage("s"), user("hi")]);
+	await new Promise((r) => setTimeout(r, 50));
+	assert.equal(pushes.length, 1, JSON.stringify(pushes));
+	assert.match(pushes[0].title, /预算/);
+	assert.equal(lines.filter((l) => /daily budget/.test(l.warn ?? "")).length, 1);
+});

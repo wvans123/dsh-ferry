@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-ferry",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "DeepSeek Harness model plugin and its server: DeepSeek (or a Ferry server) behind small, compressed incremental uploads",
   "license": "MIT",
   "type": "module",
