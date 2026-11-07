@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { probeLimit } from "../lib/probe.js";
 import { startFakeFerry } from "./fake-server.js";
@@ -35,7 +36,7 @@ test("dsh-llm-ferry probe --save keeps the size in ~/.ferry/config.json next to 
 	server = await startFakeFerry({ blockAbove: 60 * 1024 });
 	const home = mkdtempSync(join(tmpdir(), "ferry-home-"));
 	writeFileSync(join(home, "config.json"), JSON.stringify({ server: server.url, token: server.state.token }));
-	const bin = new URL("../bin/dsh-llm-ferry.js", import.meta.url).pathname;
+	const bin = fileURLToPath(new URL("../bin/dsh-llm-ferry.js", import.meta.url));
 	const { stdout } = await promisify(execFile)(process.execPath, [bin, "probe", "--save"],
 		{ env: { DSH_FERRY_DATA: "", ...process.env, FERRY_HOME: home, FERRY_SERVER: "", FERRY_TOKEN: "" } });
 	assert.match(stdout, /The limit is about 5\d KB/);

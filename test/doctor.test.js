@@ -29,11 +29,14 @@ const PATCH = (server, token) => `- id: agent-default-model
     server: http://not-this
 `;
 
+// the doctor joins paths the way the test machine does (backslashes on Windows CI): the pretend files are listed with slashes
+const slashes = (f) => f.replace(/\\/g, "/");
+
 /** A pretend Windows home with DSH's desktop profile, the plugin installed and a patch file. */
 function machine(files, extra = {}) {
 	return {
-		home: "C:\\Users\\me", platform: "win32", env: { DSH_FERRY_DATA: "", DSH_HOME: "/dsh" }, exists: (f) => f in files,
-		read: (f) => files[f], ...extra,
+		home: "C:\\Users\\me", platform: "win32", env: { DSH_FERRY_DATA: "", DSH_HOME: "/dsh" }, exists: (f) => slashes(f) in files,
+		read: (f) => files[slashes(f)], ...extra,
 	};
 }
 
@@ -62,7 +65,7 @@ test("all good: plugin, server, token, models; Windows: a labelled workspace, a 
 	const text = lines.map((l) => `${l.level} ${l.text}`).join("\n");
 	assert.equal(failed, false, text);
 	assert.match(text, /ok plugin dsh-llm-ferry 9\.9\.9 is installed in DSH profile "desktop"/);
-	assert.match(text, new RegExp(`ok server ${url.replace(/[.]/g, "\\.")} \\(from /dsh/profiles/desktop/cordis.patch.yml\\)`));
+	assert.match(text, new RegExp(`ok server ${url.replace(/[.]/g, "\\.")} \\(from .dsh.profiles.desktop.cordis\\.patch\\.yml\\)`));
 	assert.match(text, /ok server answers in \d+ ms: dsh-ferry/);
 	assert.match(text, /ok models: auto, deepseek-flash, deepseek-v4-pro/);
 	assert.match(text, /warn .*specs carries the DSH sandbox's Low integrity label.*setintegritylevel "\(OI\)\(CI\)Medium" \/T \/C/);
