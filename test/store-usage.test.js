@@ -92,8 +92,8 @@ test("usageTap reads the usage out of an SSE stream split anywhere, for OpenAI a
 test("usage file: appended, read back by age, summed by day and model, shown as a table", () => {
 	const file = join(mkdtempSync(join(tmpdir(), "dsh-ferry-usage-")), "deep", "usage.jsonl");
 	const day = (n) => new Date(Date.now() - n * 86_400_000).toISOString();
-	appendUsage(file, { at: day(0), model: "deepseek-flash", usage: { input: 100, cache_read: 900, cache_write: 0, output: 50 }, cost: 0.0001 });
-	appendUsage(file, { at: day(0), model: "deepseek-v4-pro", usage: { input: 1000, cache_read: 0, cache_write: 0, output: 10 }, cost: 0.0014 });
+	appendUsage(file, { at: day(0), model: "deepseek-flash", usage: { input: 100, cache_read: 900, cache_write: 0, output: 50 }, cost: 0.0001, ttft: 1200 });
+	appendUsage(file, { at: day(0), model: "deepseek-v4-pro", usage: { input: 1000, cache_read: 0, cache_write: 0, output: 10 }, cost: 0.0014, ttft: 3400 });
 	appendUsage(file, { at: day(40), model: "deepseek-flash", usage: { input: 1, cache_read: 0, cache_write: 0, output: 1 }, cost: 1 });
 	writeFileSync(file, "not json\n", { flag: "a" });
 	const records = readUsage(file, 30);
@@ -106,7 +106,9 @@ test("usage file: appended, read back by age, summed by day and model, shown as 
 	const text = formatStats(s, 30);
 	assert.match(text, /last 30 days/);
 	assert.match(text, /total\s+2\s+2000\s+45%\s+60\s+0\.00/);
-	assert.match(text, /deepseek-flash\s+1\s+1000\s+90%/);
+	assert.match(text, /deepseek-flash\s+1\s+1000\s+90%\s+50\s+0\.00\s+1\.2s/);
+	assert.match(text, /total\s.*\s3\.4s$/m); // the median of two is the upper one; old records without ttft leave the column blank
+	assert.equal(summarize([{ at: day(0), model: "x", usage: {}, cost: 0 }]).total.ttft, null);
 	assert.deepEqual(readUsage(join(file, "..", "missing.jsonl")), []);
 });
 

@@ -3,6 +3,7 @@
 // works with either.
 //   GET  /health                                   no token needed
 //   GET  /v1/ferry/models                          models this server offers, and what it supports ("features")
+//   GET  /v1/ferry/head?conv=[&tools_hash=]        how much of a conversation the server holds ({count, hash, tools})
 //   POST /v1/ferry/probe                           how big a request gets through (the body is thrown away)
 //   POST /v1/ferry/upload/{upload}/{seq}           one part of a big upload
 //   POST /v1/ferry/commit?conv=&base=&base_hash=[&upload=&parts=][&encoding=gzip]
@@ -117,7 +118,9 @@ export function createApp(cfg, deps = {}) {
 		for (const [id, m] of cfg.models) list.push(describe(id, m));
 		// "tools": /v1/tools/search and /fetch answer (a name of its own: the Ferry server's "search" is another API)
 		// "inline": a small addition may come inside the model request (ferry.append) instead of a commit of its own
-		return { models: list, sessionStore: "memory", version, features: ["gzip", "reasoning", "inline", ...(searcher()?.apiKey ? ["tools"] : [])] };
+		// "head": GET /v1/ferry/head tells a fresh plugin what the server holds, so a resumed session is not re-uploaded
+		return { models: list, sessionStore: "memory", version,
+			features: ["gzip", "reasoning", "inline", "head", ...(searcher()?.apiKey ? ["tools"] : [])] };
 	}
 
 	/** One Bark push. kind "approval" is time-sensitive. */
@@ -213,6 +216,7 @@ export function createApp(cfg, deps = {}) {
 
 	/** api "openai": /v1/chat/completions; "anthropic": /anthropic/v1/messages. Both stream the model's answer back as is. */
 	async function chat(req, res, user, api) {
+		const started = Date.now();
 		const payload = JSON.parse((await readBody(req)).toString("utf8"));
 		const ref = payload.ferry;
 		delete payload.ferry;
@@ -280,8 +284,10 @@ export function createApp(cfg, deps = {}) {
 		res.writeHead(up.status, { "content-type": up.headers.get("content-type") ?? "application/json",
 			"cache-control": "no-cache", "x-accel-buffering": "no" });
 		const tap = usageTap(api);
+		let ttft; // ms from the request's arrival to the model's first byte: where a slow turn spends its time
 		if (up.body) {
 			for await (const chunk of up.body) {
+				ttft ??= Date.now() - started;
 				res.write(chunk);
 				if (up.ok) tap.write(chunk);
 			}
@@ -293,14 +299,16 @@ export function createApp(cfg, deps = {}) {
 			spend(cost);
 			if (cfg.usageFile) {
 				try {
-					appendUsage(cfg.usageFile, { at: new Date().toISOString(), user, model: m.id, purpose: ref?.purpose ?? "agent", usage, cost });
+					appendUsage(cfg.usageFile, { at: new Date().toISOString(), user, model: m.id, purpose: ref?.purpose ?? "agent", usage, cost,
+						ttft, ms: Date.now() - started });
 				} catch (e) {
 					log({ at: new Date().toISOString(), warn: `cannot write ${cfg.usageFile}: ${e.message}` });
 				}
 			}
 		}
 		return { model: m.id, upstream: up.status, messages: payload.messages?.length ?? 0, ...(retries ? { retries } : {}),
-			...(fallback ? { fallback } : {}), ...(ref?.append ? { inline: ref.append.length } : {}), ...(usage ? { usage, cost } : {}) };
+			...(fallback ? { fallback } : {}), ...(ref?.append ? { inline: ref.append.length } : {}), ...(usage ? { usage, cost } : {}),
+			...(ttft !== undefined ? { ttft } : {}) };
 	}
 
 	async function handle(req, res) {
@@ -316,6 +324,13 @@ export function createApp(cfg, deps = {}) {
 		req.user = user;
 
 		if (req.method === "GET" && path === "/v1/ferry/models") return send(res, 200, models());
+		if (req.method === "GET" && path === "/v1/ferry/head") {
+			// a plugin that has just started asks what the server already holds, so a resumed session is not uploaded again
+			const head = store.head(user, url.searchParams.get("conv") ?? "");
+			if (!head) throw new HttpError(404, "conversation not found");
+			const th = url.searchParams.get("tools_hash");
+			return send(res, 200, { ...head, tools: !!th && !!store.toolList(user, th) });
+		}
 		if (req.method !== "POST") throw new HttpError(404, "not found");
 		if (path === "/v1/ferry/probe") return send(res, 200, { bytes: (await readBody(req)).length });
 		if (path === "/v1/ferry/notify") {

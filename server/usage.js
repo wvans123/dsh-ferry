@@ -79,11 +79,17 @@ export function readUsage(file, days = 30) {
 
 /** Totals by day and by model: { days: [{ day, ...totals }], models: [{ model, ...totals }], total }. */
 export function summarize(records) {
-	const empty = () => ({ calls: 0, input: 0, cache_read: 0, cache_write: 0, output: 0, cost: 0 });
+	const empty = () => ({ calls: 0, input: 0, cache_read: 0, cache_write: 0, output: 0, cost: 0, ttfts: [] });
 	const add = (t, r) => {
 		t.calls++;
 		for (const k of ["input", "cache_read", "cache_write", "output"]) t[k] += r.usage?.[k] ?? 0;
 		t.cost += r.cost ?? 0;
+		if (typeof r.ttft === "number") t.ttfts.push(r.ttft);
+	};
+	const median = (xs) => {
+		if (!xs.length) return null;
+		const s = [...xs].sort((a, b) => a - b);
+		return s[Math.floor(s.length / 2)];
 	};
 	const byDay = new Map();
 	const byModel = new Map();
@@ -97,7 +103,8 @@ export function summarize(records) {
 		add(total, r);
 	}
 	const hit = (t) => (t.input + t.cache_read ? t.cache_read / (t.input + t.cache_read) : 0);
-	const done = (t) => ({ ...t, hit: hit(t), cost: Math.round(t.cost * 1e4) / 1e4 });
+	// ttft: median ms to the model's first byte (null before any call recorded it)
+	const done = ({ ttfts, ...t }) => ({ ...t, hit: hit(t), cost: Math.round(t.cost * 1e4) / 1e4, ttft: median(ttfts) });
 	return { days: [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)).map(done),
 		models: [...byModel.values()].sort((a, b) => b.cost - a.cost).map(done), total: done(total) };
 }
@@ -106,8 +113,9 @@ export function summarize(records) {
 export function formatStats(summary, days) {
 	const n = (x) => (x >= 1e6 ? `${(x / 1e6).toFixed(1)}M` : x >= 1e4 ? `${Math.round(x / 1e3)}K` : String(x));
 	const pct = (x) => `${Math.round(x * 100)}%`;
-	const row = (label, t) => `${label.padEnd(12)} ${String(t.calls).padStart(6)} ${n(t.input + t.cache_read).padStart(8)} ${pct(t.hit).padStart(5)} ${n(t.output).padStart(8)} ${t.cost.toFixed(2).padStart(9)}`;
-	const lines = [`last ${days} days`, `${"".padEnd(12)} ${"calls".padStart(6)} ${"input".padStart(8)} ${"cache".padStart(5)} ${"output".padStart(8)} ${"cost".padStart(9)}`];
+	const secs = (ms) => (ms == null ? "" : `${(ms / 1000).toFixed(1)}s`);
+	const row = (label, t) => `${label.padEnd(12)} ${String(t.calls).padStart(6)} ${n(t.input + t.cache_read).padStart(8)} ${pct(t.hit).padStart(5)} ${n(t.output).padStart(8)} ${t.cost.toFixed(2).padStart(9)} ${secs(t.ttft).padStart(7)}`;
+	const lines = [`last ${days} days`, `${"".padEnd(12)} ${"calls".padStart(6)} ${"input".padStart(8)} ${"cache".padStart(5)} ${"output".padStart(8)} ${"cost".padStart(9)} ${"1st tok".padStart(7)}`];
 	for (const d of summary.days) lines.push(row(d.day, d));
 	lines.push(row("total", summary.total), "");
 	for (const m of summary.models) lines.push(row(m.model, m));

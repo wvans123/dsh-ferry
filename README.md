@@ -75,11 +75,11 @@ dsh-llm-ferry doctor --upload
 
 缓存。对话的前面部分每轮都一样，DeepSeek 会命中缓存，便宜很多。DeepSeek 报的命中数会传给 DSH，你在 DSH 的用量里能看到。
 
-花了多少钱。服务端把每次调用的 token 数和费用记在 `~/.dsh-ferry/usage.jsonl` 里，`dsh-llm-ferry stats` 按天、按模型给你列出来，包括缓存命中率。想控制一下，配置里写 `"dailyBudget": 5`，当天超过这个数时手机上收到一条提醒，调用照常。
+花了多少钱，快不快。服务端把每次调用的 token 数、费用和模型吐出第一个字用了多久记在 `~/.dsh-ferry/usage.jsonl` 里，`dsh-llm-ferry stats` 按天、按模型给你列出来，包括缓存命中率和首字时间。想控制一下，配置里写 `"dailyBudget": 5`，当天超过这个数时手机上收到一条提醒，调用照常。
 
 模型忙的时候。DeepSeek 返回 429 或 5xx，服务端先自己等一下重试，最多两次，DSH 那边只是慢一点。还不行的话，如果你给这个模型配了 `fallback`，就换那个模型回答。
 
-服务端重启。传上来的对话存在磁盘上（`~/.dsh-ferry/store/`），服务端重启后 DSH 接着用，不用重传。
+重启和续聊。传上来的对话存在磁盘上（`~/.dsh-ferry/store/`），服务端重启后 DSH 接着用，不用重传。反过来也一样：DSH 重启、恢复一个旧会话、从长对话里派出子任务，插件先问一句服务端手里有多少，只把差的那几条发过去，几百 KB 的历史不用再走一遍网关。
 
 别家的模型。Kimi、GLM、通义、Claude 都能接：在配置里给服务商填地址和 Key，给模型写一行 `catalog`，指向 pi-ai 模型目录里的名字，上下文多大、能不能看图、怎么开思考，插件都从目录里取，不用你填。
 
@@ -149,7 +149,7 @@ dsh-llm-ferry doctor --upload
 | `dsh-llm-ferry serve` | 启动服务端 |
 | `dsh-llm-ferry doctor [--upload]` | 在公司电脑上自检：插件装没装、地址口令对不对、代理和证书、网关放多大、Windows 工作区常见的坑 |
 | `dsh-llm-ferry probe [--save]` | 实测网关放多大的请求 |
-| `dsh-llm-ferry stats [--days N]` | 看用量和费用 |
+| `dsh-llm-ferry stats [--days N]` | 看用量、费用和首字时间 |
 
 ## 只从服务端出去
 

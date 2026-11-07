@@ -92,12 +92,14 @@
 
    日志在任务计划程序里看不到，想留日志就把 `-Argument` 写成 `serve --config D:\ferry\dsh-ferry-server.json` 并用 `cmd /c "... serve >> D:\ferry\dsh-ferry.log 2>&1"` 的形式。
 
-7. 服务端留下的东西都在 `~/.dsh-ferry`（Windows：`%USERPROFILE%\.dsh-ferry`）：`store/` 是工作电脑传上来的对话（重启后 DSH 不用重传），`usage.jsonl` 是每次模型调用的 token、缓存命中和费用。看一眼花了多少：
+7. 服务端留下的东西都在 `~/.dsh-ferry`（Windows：`%USERPROFILE%\.dsh-ferry`）：`store/` 是工作电脑传上来的对话（服务端重启、DSH 重启、恢复旧会话都不用重传），`usage.jsonl` 是每次模型调用的 token、缓存命中、费用和首字时间（从请求到达服务端到模型吐出第一个字）。看一眼花了多少、快不快：
 
    ```sh
-   dsh-llm-ferry stats            # 最近 30 天，按天、按模型
+   dsh-llm-ferry stats            # 最近 30 天，按天、按模型；最后一列是首字时间的中位数
    dsh-llm-ferry stats --days 7
    ```
+
+   首字时间长，钱又没省（cache 那列低），多半是对话开头每轮都在变，缓存没命中；正常应该在 80% 以上。
 
    每天花费超过多少就让 Bark 提醒一次：配置里写 `"dailyBudget": 5`（单位和模型价格一致）。
 
@@ -213,7 +215,7 @@
 
 
 - DSH 的模型列表里只有服务端给的模型。
-- 家里电脑的服务端窗口里，每问一次都会出现几行记录：先是 `/v1/ferry/commit`（大的对话还有 `/v1/ferry/upload/...` 分块），然后是 `/anthropic/v1/messages`。没有这些记录，说明请求没到服务端。
+- 家里电脑的服务端窗口里，每问一次都会出现一行 `/anthropic/v1/messages`（小的增量就在这一个请求里，`inline` 字段是这回带上来几条；大的先有 `/v1/ferry/commit`，更大的还有 `/v1/ferry/upload/...` 分块；恢复旧会话时前面多一行 `/v1/ferry/head`）。没有这些记录，说明请求没到服务端。
 - 想看得更细：服务端日志里每行都有 `bytes`（请求大小）。分块和提交不超过你设的块大小，模型请求只有几百字节。
 
 ## 常见问题

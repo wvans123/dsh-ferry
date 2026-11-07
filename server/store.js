@@ -58,6 +58,12 @@ export class Store {
 		return { count: s.msgs.length, hash: s.chain[s.msgs.length] };
 	}
 
+	/** What the server holds of a conversation, { count, hash }, or null. A fresh client asks before its first upload. */
+	head(user, conv) {
+		const s = this.session(`${user}\0${conv}`);
+		return s ? { count: s.msgs.length, hash: s.chain[s.msgs.length] } : null;
+	}
+
 	/** The conversation's messages and tools for a model call; Conflict when they are not what the client expects. */
 	load(user, conv, count, hash, toolsHash) {
 		const s = this.session(`${user}\0${conv}`);

@@ -75,11 +75,11 @@ Thinking levels. DeepSeek's thinking (off, low, high, max) can be chosen in DSH;
 
 Caching. The beginning of the conversation is the same every turn, so DeepSeek serves it from cache, which is much cheaper. The hit counts DeepSeek reports are passed on to DSH and show up in its usage display.
 
-What it costs. The server writes every call's token counts and cost to `~/.dsh-ferry/usage.jsonl`; `dsh-llm-ferry stats` sums them by day and by model, cache hit rate included. To keep an eye on it, set `"dailyBudget": 5` in the config: when a day's spending passes that, you get one push notification on your phone. Calls go on as normal.
+What it costs, and how fast it is. The server writes every call's token counts, cost and time to the model's first byte to `~/.dsh-ferry/usage.jsonl`; `dsh-llm-ferry stats` sums them by day and by model, cache hit rate and median first-token time included. To keep an eye on it, set `"dailyBudget": 5` in the config: when a day's spending passes that, you get one push notification on your phone. Calls go on as normal.
 
 When the model is busy. On a 429 or a 5xx the server waits and retries on its own, up to twice; DSH only sees a slower answer. If that is not enough and the model has a `fallback` configured, that model answers instead.
 
-Server restarts. Uploaded conversations are kept on disk (`~/.dsh-ferry/store/`), so after a restart DSH carries on without uploading again.
+Restarts and resumed sessions. Uploaded conversations are kept on disk (`~/.dsh-ferry/store/`), so after a server restart DSH carries on without uploading again. The other way round too: when DSH restarts, resumes an old session or starts a subagent from a long chat, the plugin first asks the server how much it already holds and sends only the missing messages, so a few hundred KB of history do not pass the gateway a second time.
 
 Other models. Kimi, GLM, Qwen, Claude: give the provider an address and a key, give the model one `catalog` line naming it in pi-ai's model catalog, and the plugin takes the context size, image support and thinking details from there.
 
@@ -149,7 +149,7 @@ There are four commands:
 | `dsh-llm-ferry serve` | Start the server |
 | `dsh-llm-ferry doctor [--upload]` | Self-check on the work PC: plugin installed, address and password right, proxy and certificates, gateway limit, common Windows workspace problems |
 | `dsh-llm-ferry probe [--save]` | Measure how big a request the gateway lets through |
-| `dsh-llm-ferry stats [--days N]` | Usage and cost |
+| `dsh-llm-ferry stats [--days N]` | Usage, cost and first-token time |
 
 ## The only way out
 

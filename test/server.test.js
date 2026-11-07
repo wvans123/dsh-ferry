@@ -88,7 +88,7 @@ test("health needs no token; everything else does, and the protocol version is c
 test("the model list: auto plus DeepSeek's models with their thinking levels, and what the server supports", async () => {
 	const { url } = await setup();
 	const body = await (await api(url, "/v1/ferry/models")).json();
-	assert.deepEqual(body.features, ["gzip", "reasoning", "inline", "tools"]);
+	assert.deepEqual(body.features, ["gzip", "reasoning", "inline", "head", "tools"]);
 	assert.deepEqual(body.models.map((m) => m.id), ["auto", "deepseek-flash", "deepseek-v4-pro"]);
 	const flash = body.models[1];
 	assert.equal(flash.reasoning, true);
@@ -283,6 +283,37 @@ test("with memory only, a lost conversation makes the plugin send it in full onc
 	const chats = lines.filter((l) => l.path === "/v1/chat/completions").map((c) => c.status);
 	assert.deepEqual(chats, [200, 409, 200]);
 	assert.equal(ds.state.requests[1].body.messages.length, 4);
+});
+
+test("a plugin that starts fresh on an old conversation asks the server what it holds and sends only the rest", async () => {
+	const { url, ds, lines } = await setup();
+	const one = plugin(url);
+	await one.refresh();
+	ds.state.replies.push({ tool: { name: "read", args: { path: "a.txt" } } }, { text: "done" });
+	const history = [createSystemMessage("s"), user("read a.txt")];
+	const first = await ask(one.adapter, history);
+	const call = first.filter((c) => c.type === "block-end").map((c) => c.block).find((b) => b.type === "tool-call");
+	history.push(createAssistantMessage({ content: [call] }), createToolResultMessage({ toolCallId: call.id, content: [{ type: "text", text: "x".repeat(60_000) }] }));
+	await ask(one.adapter, history);
+	assert.ok(!lines.some((l) => l.path === "/v1/ferry/head")); // small so far, or already known: no question asked
+	const held = ds.state.requests[1].body.messages.length;
+	// DSH restarted (or a resumed session): a new plugin instance that knows nothing, the server still holds the conversation
+	history.push(createAssistantMessage({ content: [{ type: "text", text: "done" }] }), user("and b.txt?"));
+	const two = plugin(url);
+	await two.refresh();
+	const out = await ask(two.adapter, history);
+	assert.equal(out.at(-1).reason.kind, "stop");
+	const after = lines.slice(lines.findIndex((l) => l.path === "/v1/ferry/head"));
+	assert.deepEqual(after.map((l) => [l.path, l.status]), [["/v1/ferry/head", 200], ["/v1/chat/completions", 200]]);
+	const chat = after[1];
+	assert.deepEqual([chat.inline, chat.messages], [2, held + 2], JSON.stringify(chat)); // only the two new messages went up
+	assert.equal(typeof chat.ttft, "number");
+	// a conversation the server never saw: the question is answered 404 and the whole thing goes up, no error
+	const three = plugin(url);
+	await three.refresh();
+	const fresh = await ask(three.adapter, [createSystemMessage("other"), user("a"), createAssistantMessage({ content: [{ type: "text", text: "b".repeat(60_000) }] }), user("c")]);
+	assert.equal(fresh.at(-1).reason.kind, "stop");
+	assert.deepEqual(lines.slice(-3).map((l) => [l.path, l.status]), [["/v1/ferry/head", 404], ["/v1/ferry/commit", 200], ["/v1/chat/completions", 200]]);
 });
 
 test("a request before the model list has arrived (a resumed session) waits for it instead of failing", async () => {
