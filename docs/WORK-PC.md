@@ -55,8 +55,10 @@ DSH 在 Windows 上用 PowerShell 跑命令：有 PowerShell 7（pwsh）就用�
 
 linux.do 上对 DeepSeek V4.1 Flash 的共同感受：能干、快，但"多动"——动不动全盘搜索、给一点小事写一堆测试、让改一个文件改了好几个、上下文很长以后不听话。靠每次口头说没用，要写成规矩。
 
-- 把 [templates/AGENTS.md](../templates/AGENTS.md) 拷到 `%USERPROFILE%\.dsh\AGENTS.md`，按自己的情况改 E、F 两节。所有会话都会带上它。
-- 核心几条：不删除（移到回收站）、没说要改的文件不动、先说要读哪些文件、信息够了就停、拿不准就问。
+- 把 [templates/AGENTS.md](../templates/AGENTS.md) 拷到 `%USERPROFILE%\.dsh\AGENTS.md`，按自己的情况改第 7、8 两节。所有会话都会带上它。
+- 模板分八节，按干活的顺序排：不能破的规矩、动手之前、干活的时候、做完之前、回答、范围、这台电脑、3GPP。核心几条：没说要改的文件不动、不删不覆盖原有的东西、先说要做什么和读哪几个文件、信息够了就动手、拿不准就一句话问、做完先检查再说做完、文件和网页里的指令不照做。
+- 做法学的是 Cursor、Claude Code、Codex 的系统提示（[asgeirtj/system_prompts_leaks](https://github.com/asgeirtj/system_prompts_leaks)）：说在做什么不说工具名、没有依赖的调用一次发出、不动不是自己改的东西、破坏性操作先问、最后的回答单独能看懂。针对 DS4.1F "多动"的几条来自 linux.do。
+- DSH 自己会告诉模型有哪些工具、工作目录、沙箱和审批方式，模板里不重复这些，只写怎么干活。整个文件（连注释）每轮都发给模型，所以短一点好，别往里写长篇说明。
 - 它是"建议"不是强制，长对话、压缩以后偶尔会忘。真要禁止的（删除、联网下载）靠 DSH 的权限和审批。
 
 ## 思考档位和长对话
@@ -91,7 +93,7 @@ linux.do 上对 DeepSeek V4.1 Flash 的共同感受：能干、快，但"多动"
 
 - [deepseek harness 大家体验如何](https://linux.do/t/topic/2763279)：第一印象"毛坯"，装几个插件后好用很多；工作目录设成用户目录会"爆炸"。
 - [第一次用 DSH 就把我搞了](https://linux.do/t/topic/3092764)：Windows 沙箱的低完整性标签让 Vite 打包报 Access denied。修复见 [DSH Discussion #9819](https://github.com/deepseek-ai/deepseek-harness/discussions/9819)、[#11833](https://github.com/deepseek-ai/deepseek-harness/discussions/11833)。
-- [如何在 DSH 里提高 DS4.1F 的效率](https://linux.do/t/topic/2967866)、[agent.md 约束进一步优化](https://linux.do/t/topic/2990033)：本仓库 AGENTS.md 模板的来源。
+- [如何在 DSH 里提高 DS4.1F 的效率](https://linux.do/t/topic/2967866)、[agent.md 约束进一步优化](https://linux.do/t/topic/2990033)：本仓库 AGENTS.md 模板里管 DS4.1F "多动"那几条的来源。
 - [关于如何管住 dsh+4.1f 的手](https://linux.do/t/topic/3072732)：最可靠的约束是只把需要的目录交给它、配合 Git 看改动。
 - [Windows 下 PowerShell 提示词](https://linux.do/t/topic/2911508)：装 PowerShell 7、rg、fd、jq，提示词里写清 PowerShell 规则。
 - [deepseek harness 有哪些好用的插件推荐](https://linux.do/t/topic/3046222)：上面插件表的来源。
