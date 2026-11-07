@@ -2,98 +2,115 @@
 
 [中文](README.md)
 
-Run DeepSeek Harness (DSH) on a locked-down work computer. The API key lives on a server you own; every model call from DSH goes to that server first, which calls the model. Requests carry only what is new, compressed and cut into small parts, so they get through a company gateway that stops big requests.
+A plugin for DeepSeek Harness (DSH) and a small server that goes with it. With it installed, DSH no longer talks to DeepSeek itself. It sends each request to a server you run, the server calls the model with its own API key, and streams the answer back.
 
-One plugin and one server, both in this repository. The server uses nothing beyond Node's built-in modules.
-
-## The problem
-
-Three things get in the way of an agent on a work PC:
-
-1. The key must not be on that machine (audited, screenshotted, synced).
-2. The gateway stops big requests, often around 100 KB. An agent re-sends the whole conversation on every turn, so after a few dozen turns one request is hundreds of KB.
-3. The proxy inspects HTTPS. You would rather not have the full text of every model call cross it again and again.
-
-Here the work PC talks only to your server, sending compressed, token-protected increments in small parts. The server rebuilds the conversation and calls the model with its own key.
+I wrote it because DSH was unusable on my work PC: I did not want the API key on a company machine, and the company gateway drops requests bigger than about 100 KB, while DSH re-sends the whole conversation on every turn, so after a few dozen turns a single request is a few hundred KB. The plugin fixes both. If you are in a similar place, it may work for you too.
 
 ## How it works
 
 ```
-work PC                                           your machine at home
-┌──────────────────────┐  small gzip increments  ┌────────────────────┐        ┌───────────┐
-│ DSH + dsh-llm-ferry  │ ──────────────────────▶ │ dsh-ferry server   │ ─────▶ │ DeepSeek  │
-│ (no key)             │ ◀────────────────────── │ (key lives here)   │ ◀───── │ or others │
-└──────────────────────┘    the model's stream   └────────────────────┘        └───────────┘
+work PC                                        a machine you trust (at home, say)
+┌──────────────────────┐                      ┌────────────────────┐          ┌───────────┐
+│ DSH + this plugin    │ ── small gzip parts ─▶ │ this server        │ ───────▶ │ DeepSeek  │
+│ no key here          │ ◀── the model's reply │ the key lives here │ ◀─────── │ or others │
+└──────────────────────┘                      └────────────────────┘          └───────────┘
 ```
 
-- Incremental sync. The server keeps each conversation; the plugin sends only the messages it has not seen (usually one tool result), then a request of a few hundred bytes. A small increment rides inside the model request itself: one round trip per turn.
-- Compress, then cut. Big increments are gzipped (text shrinks to a fraction) and, if still big, sent in 80 KB parts the server joins. A 403 from the gateway halves the part size and retries.
-- Exactly like DSH talking to DeepSeek itself. DeepSeek's Anthropic-compatible API, thinking levels, thinking replayed on the next turn, prefix caching, the Search API: all as in DSH's own DeepSeek plugin, just sent from the server.
-- The only way out. Whatever plugins or settings DSH has, every model call leaves through this plugin; direct `fetch` calls to model APIs are refused.
-- No conversation text in logs. The server logs path, size, status, time and token counts.
+The server remembers each conversation. Where DSH would send the whole conversation, the plugin sends only the part the server has not seen yet, usually one tool result of a few KB. The server puts the conversation back together, calls the model and streams the reply back unchanged.
 
-## Five minutes
+When a lot has to go up at once (you pasted a long file), the plugin gzips it first; text usually shrinks to a fraction. If it is still big, it goes in 80 KB parts that the server joins. If the gateway still blocks a part, the plugin halves the size and tries again.
 
-At home (Node 24; Mac, Linux or Windows):
+To the model this looks exactly like DSH talking to DeepSeek directly: same API, same thinking levels, earlier thinking replayed, same prefix caching, same search. Only the place it is sent from has changed.
+
+The server logs path, size, status, time and token counts. It never logs conversation text.
+
+## Up and running in five minutes
+
+On the machine at home (Mac, Linux or Windows; Node 24):
 
 ```sh
 export DEEPSEEK_API_KEY=sk-...
-export DSH_FERRY_TOKEN=$(openssl rand -hex 16)   # any string of 16+ characters
+export DSH_FERRY_TOKEN=$(openssl rand -hex 16)   # the password between DSH and the server; anything of 16+ characters
 npx -y github:wvans123/dsh-ferry serve
-cloudflared tunnel --url http://127.0.0.1:8790    # expose it; you get an https address
 ```
 
-On the work PC (DSH 0.2.2 or newer):
+The server is now on `127.0.0.1:8790`. To reach it from the work PC you have to expose it; the easiest way is Cloudflare Tunnel:
+
+```sh
+cloudflared tunnel --url http://127.0.0.1:8790
+```
+
+It prints an address like `https://xxx.trycloudflare.com`. Keep it.
+
+On the work PC (DSH 0.2.2 or newer installed):
 
 ```sh
 dsh plugin --profile web add github:wvans123/dsh-ferry
 ```
 
-Put the address and token in the profile's `cordis.patch.yml`, restart DSH:
+Open that profile's `cordis.patch.yml` and add the address and the password:
 
 ```yaml
 - id: llm-ferry
   config:
     server: https://xxx.trycloudflare.com
-    token: <token>
+    token: <password>
 ```
 
-Models come from the server; pick `ferry/auto` or a named one in DSH. Then let the self-check tell you what is not connected yet and what to do:
+Restart DSH. The model list comes from the server; pick `ferry/auto` in DSH and you are done.
+
+If something does not connect, run the self-check. It says which step is broken and what to do about it:
 
 ```sh
 dsh-llm-ferry doctor --upload
 ```
 
-Desktop DSH, company proxy and certificates, offline install, running as a service: [docs/SETUP.md](docs/SETUP.md) (Chinese).
+The desktop version of DSH, a company proxy with its own certificates, installing offline when GitHub is blocked, starting the server at boot: all in [docs/SETUP.md](docs/SETUP.md) (Chinese).
 
-## What you get
+## What else you get
 
-| | |
-|---|---|
-| Through the gateway | every request under 80 KB (measurable, adjustable); big conversations gzipped and cut |
-| Fewer round trips | small increments ride in the model request: one round trip per turn |
-| Thinking | DeepSeek's levels (off, low, high, max) selectable in DSH, "high" by default; earlier thinking replayed as is |
-| Caching | stable prefix; DeepSeek's cache hits reported to DSH and recorded on the server |
-| Cost | `dsh-llm-ferry stats`: tokens, hit rate and cost by day and model; `dailyBudget` sends one Bark push when passed |
-| Robustness | retries on 429/5xx before anything is sent back; a `fallback` model when that is not enough; conversations survive a server restart |
-| Other models | Kimi, GLM, Qwen, Claude: a provider with address and key, a model with one `catalog` line; abilities come from pi-ai's catalog |
-| Search | DSH's `web_search` through the server's DeepSeek Search API; no key on the work PC |
-| Phone | Bark: a task finished, failed, or waits for your approval |
-| Small things | compaction at half the context window (DeepSeek stops listening well past 500K tokens); a note when plugin and server versions differ |
+Beyond getting through the gateway, the server does a few things that help day to day.
 
-## Why not just…
+Thinking levels. DeepSeek's thinking (off, low, high, max) can be chosen in DSH; when you choose nothing it is "high", as when DSH talks to DeepSeek directly. Earlier thinking goes back to the model as it was.
 
-Put the key in DSH: the key is on the work PC, and whole-conversation requests stop passing the gateway after a few dozen turns.
+Caching. The beginning of the conversation is the same every turn, so DeepSeek serves it from cache, which is much cheaper. The hit counts DeepSeek reports are passed on to DSH and show up in its usage display.
 
-A plain reverse proxy (nginx, a Worker) to DeepSeek: solves the key, not the request size, and the proxy sees the full text.
+What it costs. The server writes every call's token counts and cost to `~/.dsh-ferry/usage.jsonl`; `dsh-llm-ferry stats` sums them by day and by model, cache hit rate included. To keep an eye on it, set `"dailyBudget": 5` in the config: when a day's spending passes that, you get one push notification on your phone. Calls go on as normal.
 
-The original [Ferry](https://github.com/wvans123/ferry): same protocol, more features (model pools, admin page, rules, memory, Feishu). This is its light version, doing only what DSH needs; the plugin connects to either server.
+When the model is busy. On a 429 or a 5xx the server waits and retries on its own, up to twice; DSH only sees a slower answer. If that is not enough and the model has a `fallback` configured, that model answers instead.
+
+Server restarts. Uploaded conversations are kept on disk (`~/.dsh-ferry/store/`), so after a restart DSH carries on without uploading again.
+
+Other models. Kimi, GLM, Qwen, Claude: give the provider an address and a key, give the model one `catalog` line naming it in pi-ai's model catalog, and the plugin takes the context size, image support and thinking details from there.
+
+Web search. DSH's `web_search` goes through the server too, using the server's key with DeepSeek's Search API. No key on the work PC for that either.
+
+Phone. Install Bark, give the server its address, and you get a push when a task finishes, fails, or waits for your approval.
+
+Long conversations. DSH compacts the context at 80% of the window by default, about 700K tokens on DeepSeek's 1M window; people who use it a lot agree the model stops following instructions well past 500K. The plugin sets the threshold to 50%.
+
+## Is there another way?
+
+Put the key straight into DSH: the key is on the work PC, and whole-conversation requests stop passing the gateway after a few dozen turns.
+
+A reverse proxy (nginx, a Cloudflare Worker) forwarding to DeepSeek: the key problem is solved, the size problem is not, and the proxy sees everything.
+
+The original [Ferry](https://github.com/wvans123/ferry): the same protocol with far more features (pools of models, an admin page, rules, memory, Feishu). This project is its light version and does only what DSH needs. The plugin connects to either server.
 
 ## Configuration
 
-Plugin (`config` of the `llm-ferry` entry in `cordis.patch.yml`; all optional): `server`, `token` (else `~/.ferry/config.json` or `FERRY_SERVER` / `FERRY_TOKEN`), `chunkBytes` (default 81920; `dsh-llm-ferry probe --save` measures and stores it), `compress` (default on), `refreshMinutes` (model list, default 5), `notifyAfterSeconds` / `approvalNotifySeconds` (Bark, default 60, 0 off), `allowDirectHosts`.
+On the plugin side, under `config` of the `llm-ferry` entry in `cordis.patch.yml`, all optional:
 
-Server (`dsh-ferry-server.json`, `serve --config <file>`; with no file it serves DeepSeek's two models to one user):
+| Setting | Meaning |
+|---|---|
+| `server`, `token` | The server's address and password. If missing, the plugin reads `~/.ferry/config.json` (written by Ferry's `ferry login`) or the environment variables `FERRY_SERVER` and `FERRY_TOKEN` |
+| `chunkBytes` | Part size, default 81920 (80 KB). `dsh-llm-ferry probe --save` measures what your gateway lets through and stores it |
+| `compress` | Whether to gzip uploads, default on. Some networks block compressed data; then set it to false |
+| `refreshMinutes` | How often the model list is fetched again, default 5 |
+| `notifyAfterSeconds`, `approvalNotifySeconds` | How long a task must run, or an approval wait, before a phone push; default 60, 0 turns it off |
+| `allowDirectHosts` | Model API hosts DSH may still reach directly. None by default; see "The only way out" below |
+
+On the server side, no config at all serves DeepSeek's two models to one user. To change that, write a `dsh-ferry-server.json` and start with `serve --config <file>`. An example using the common settings:
 
 ```json
 {
@@ -117,15 +134,49 @@ Server (`dsh-ferry-server.json`, `serve --config <file>`; with no file it serves
 }
 ```
 
-All settings are described at the top of `server/config.js`.
+A few notes:
 
-Commands: `dsh-llm-ferry serve`, `doctor [--upload]`, `probe [--save]`, `stats [--days N]`.
+- `fallback`: the model to ask when this one is busy, down or has no key. Both must speak the same API (DeepSeek's presets use its Anthropic-compatible API; Kimi and the like use the OpenAI one). The server checks this at start.
+- `summaryModel`: the model DSH's context compaction and title generation use; pick a cheap one.
+- `dataDir`: where conversations and the usage file go. `false` keeps everything in memory.
+- DeepSeek uses its Anthropic-compatible API by default, like DSH's own DeepSeek plugin. For the OpenAI format write `"deepseek": { "api": "openai" }`.
+- Every setting is explained in the comment at the top of `server/config.js`.
 
-## Status
+There are four commands:
 
-- Verified on a Mac with the real DSH 0.2.2 and the real DeepSeek API: thinking, replay, cache hits, search, a 300 KB conversation through a 100 KB fake gateway, Bark, resumed sessions.
-- Not yet installed on an actual corporate Windows PC. Unit tests run on Windows in CI; `doctor` exists for that machine.
-- Out of scope: plugins that bypass `fetch`; images pass through the parts but slowly.
-- One kind of token, no rate limiting: the server is meant for you alone.
+| Command | What it does |
+|---|---|
+| `dsh-llm-ferry serve` | Start the server |
+| `dsh-llm-ferry doctor [--upload]` | Self-check on the work PC: plugin installed, address and password right, proxy and certificates, gateway limit, common Windows workspace problems |
+| `dsh-llm-ferry probe [--save]` | Measure how big a request the gateway lets through |
+| `dsh-llm-ferry stats [--days N]` | Usage and cost |
 
-Docs are in Chinese: [docs/SETUP.md](docs/SETUP.md), [docs/WORK-PC.md](docs/WORK-PC.md), [docs/USING-DSH.md](docs/USING-DSH.md), [docs/PLUGINS.md](docs/PLUGINS.md).
+## The only way out
+
+Since the key is not on the work PC, DSH must not have any other way of reaching a model. Every model request in DSH passes one place before it leaves (`llm/stream`), and the plugin sits there: whatever route a request names, it is handed to the server. So you can install other plugins, change the default model, even switch DSH's own DeepSeek plugin back on, and requests still leave through the server. Besides that, any `fetch` from a plugin or from DSH itself to a well-known model API (api.deepseek.com, api.openai.com, api.anthropic.com, Kimi, GLM, Qwen, OpenRouter and so on) is refused; if you really need one, list it in `allowDirectHosts`. Web search is swapped to the server's as well.
+
+What this cannot catch: plugins that avoid `fetch` (node:http, say) or send to a host not on the list, like an image plugin uploading pictures to its own cloud. Do not install those. [docs/PLUGINS.md](docs/PLUGINS.md) says which plugins are fine.
+
+## Where the code is
+
+DSH's own model plugin, llm-pi-ai, handles the DSH side (message formats, images, thinking, replies). This plugin gives it one more route called `ferry`: the model list comes from the server, and sending is replaced by Ferry's protocol in `lib/sync.js` and `lib/upload.js`, ported from the Ferry client (the two must change together). The server is under `server/`, a plain `node:http` service: receive parts, rebuild the conversation, call the model, stream back, record usage. The list of endpoints is at the top of `server/app.js`.
+
+About 1100 lines of plugin, 800 of server, 59 tests.
+
+## Tests
+
+```sh
+npm install
+npm test
+```
+
+CI runs on Linux and Windows. To check against the real DeepSeek (thinking, replay, cache hits, search; costs a few cents): `FERRY_SERVER=... FERRY_TOKEN=... node scripts/check-real-deepseek.mjs`. To try the real DSH without a key, `scripts/fake-deepseek.mjs` is a fake DeepSeek that thinks and calls the read tool; point the server config's deepseek `baseUrl` at it.
+
+## Where it stands
+
+- Works on a Mac with the real DSH 0.2.2 and the real DeepSeek API: thinking, replay, cache hits, search, a 300 KB conversation through a 100 KB fake gateway, Bark pushes, resumed sessions.
+- Not yet installed on an actual corporate Windows PC. The unit tests run on Windows in CI; `doctor` was written for that machine.
+- Plugins that avoid `fetch` cannot be stopped. Images go through the parts, slowly.
+- The server has one kind of password and no rate limiting. It is meant for you alone.
+
+The other docs are in Chinese: [docs/SETUP.md](docs/SETUP.md), [docs/WORK-PC.md](docs/WORK-PC.md), [docs/USING-DSH.md](docs/USING-DSH.md), [docs/PLUGINS.md](docs/PLUGINS.md).
